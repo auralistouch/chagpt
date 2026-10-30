@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>BTC · 十分钟观察台</title><link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header><div class="logo">₿</div><div><h1>十分钟观察台</h1><p>比特币事件合约 · 行情辅助分析</p></div><span id="source" class="badge">尚未连接</span></header>
+  <main>
+    <div class="notice">只提供观察信号，不自动下单。使用币安 BTCUSDT <strong>现货</strong>一分钟行情，不能替代事件合约实际结算价格。没有保证盈利的策略；买错可能损失全部单笔本金。</div>
+    <section class="controls">
+      <label>数据来源<select id="mode"><option value="live">币安真实行情</option><option value="demo">合成演示（不能交易）</option></select></label>
+      <label>买对后的净收益比例<input id="payout" type="number" min="1" max="200" value="80" step="1"><span>%（不含返还本金）</span></label>
+      <button id="refresh">获取分析</button><label class="auto"><input id="auto" type="checkbox"> 每 30 秒刷新</label>
+    </section>
+    <p class="hint">80% 只是计算示例，请按下单页面修改。例如投入 100，买对净赚 80，填 80；买错按亏损 100 计算。</p>
+    <div id="error" role="alert" hidden></div>
+    <div id="empty" class="empty">选择数据来源，点击“获取分析”。首次获取约 3 天行情可能需要一些时间。<br>未连接时不会显示买点；可切换合成演示查看操作界面。</div>
+    <div id="results" hidden>
+      <section class="grid top">
+        <article class="signal card"><div class="eyebrow">当前观察结论</div><h2 id="action">等待</h2><p id="signal-note"></p><ul id="blockers"></ul><p class="hint">即使出现观察方向，也不代表可以盈利。下单前须在币安核对可用周期、报价、赔率及结算规则。</p></article>
+        <article class="card"><div class="eyebrow">最近收盘参考价 · BTC / USDT</div><div id="price" class="number">—</div><dl><dt>信号基准时间</dt><dd id="signal-time"></dd><dt>理论十分钟终点</dt><dd id="expiry"></dd><dt>行情延迟</dt><dd id="age"></dd></dl><p class="hint">参考价不是实时可成交价格；时间使用你的浏览器时区。实际下单延迟会改变结果。</p></article>
+      </section>
+      <section class="card chart"><div class="section-head"><h3>最近三小时走势</h3><span>一分钟收盘价</span></div><svg id="chart" viewBox="0 0 1000 220" role="img" aria-label="最近三小时比特币收盘价格曲线"></svg><div id="chart-range" class="hint"></div></section>
+      <section class="grid bottom">
+        <article class="card"><h3>指标检查</h3><p id="score" class="hint"></p><div id="metrics" class="metric-list"></div><ul id="reasons"></ul><p class="hint">满足项数只是规则一致程度，不是上涨、下跌或盈利概率。</p></article>
+        <article class="card"><h3>后段历史验证</h3><p class="hint">时间顺序前 2/3 用于描述，后 1/3 单独验证；固定规则，没有自动调参。后段结果仍可能受市场状态影响。</p><div id="stats" class="stats"></div><p id="range" class="hint"></p><p id="gate" class="hint"></p><p id="early" class="hint"></p></article>
+      </section>
+      <section class="card"><h3>后段最近 30 笔模拟记录</h3><div class="table-wrap"><table><thead><tr><th>信号时间</th><th>方向</th><th>模拟入场</th><th>十分钟终价</th><th>结果</th></tr></thead><tbody id="trades"></tbody></table></div><p class="hint">信号只使用已收盘数据；下一分钟开盘价模拟入场，第十分钟收盘价模拟结束。持有期间不重复开仓；平价保守记亏。按每笔固定投入 1 单位计算，未计费用、延迟、价差及真实结算规则。</p></section>
+    </div>
+    <footer>先模拟观察，再决定是否使用。不要借款交易、不要亏损后翻倍加仓。这里的历史表现不代表未来结果。</footer>
+  </main><script src="/app.js"></script>
+</body></html>
