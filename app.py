@@ -3,6 +3,7 @@
 import argparse
 import json
 import math
+import os
 from pathlib import Path
 import threading
 import time
@@ -11,6 +12,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 from market import fetch_candles, fetch_coinbase, demo_candles
 from strategy import analyze
+from phone import PhoneMonitor
 
 ROOT = Path(__file__).resolve().parent/'web'
 CACHE = {}
@@ -65,6 +67,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         url = urlsplit(self.path)
+        if url.path == '/api/phone':
+            phone = getattr(self.server, 'phone_monitor', None)
+            result = phone.status() if phone else dict(available=False, message='手机模块未启动，请运行新版 start.command')
+            return self.send(200, json.dumps(result, ensure_ascii=False).encode())
         if url.path == '/health':
             return self.send(200, b'{"status":"ok"}')
         if url.path == '/api/signals':
@@ -86,11 +92,43 @@ class Handler(BaseHTTPRequestHandler):
         names = {'/': ('index.html', 'text/html; charset=utf-8'),
                  '/style.css': ('style.css', 'text/css; charset=utf-8'),
                  '/alerts.js': ('alerts.js', 'text/javascript; charset=utf-8'),
+                 '/phone.js': ('phone.js', 'text/javascript; charset=utf-8'),
                  '/app.js': ('app.js', 'text/javascript; charset=utf-8')}
         if url.path not in names:
             return self.send(404, b'{"error":"Not found"}')
         name, mime = names[url.path]
         self.send(200, (ROOT/name).read_bytes(), mime)
+
+    def do_POST(self):
+        if self.path not in ('/api/phone', '/api/phone/test', '/api/phone/stop'):
+            return self.send(404, b'{"error":"Not found"}')
+        try:
+            origin = urlsplit(self.headers.get('Origin', ''))
+            host = urlsplit('http://'+self.headers.get('Host', ''))
+            if (self.client_address[0] not in ('127.0.0.1', '::1')
+                    or origin.scheme != 'http' or origin.hostname not in ('127.0.0.1', 'localhost')
+                    or origin.netloc != host.netloc or (origin.port or 80) != self.server.server_port
+                    or self.headers.get_content_type() != 'application/json'
+                    or self.headers.get('Transfer-Encoding')):
+                return self.send(403, b'{"error":"Local same-origin JSON requests only"}')
+            length = int(self.headers.get('Content-Length', '0'))
+            if not 0 < length <= 4096: raise ValueError('手机设置请求过大或为空')
+            values = json.loads(self.rfile.read(length))
+            phone = getattr(self.server, 'phone_monitor', None)
+            if not phone: raise RuntimeError('手机模块未启动，请重启新版程序')
+            if self.path == '/api/phone/stop':
+                result = phone.disable()
+            elif self.path == '/api/phone/test':
+                if not isinstance(values, dict): raise ValueError('请求格式不正确')
+                result = phone.test()
+            else:
+                result = phone.configure(values)
+            return self.send(200, json.dumps(result, ensure_ascii=False).encode())
+        except ValueError as error:
+            return self.send(400, json.dumps({'error': str(error)}, ensure_ascii=False).encode())
+        except Exception:
+            # Do not log configuration, device keys, or provider error bodies.
+            return self.send(503, json.dumps({'error': '手机设置或推送请求未完成。请确认配置、文件写入权限及网络；以 iPhone 实际收到为准。'}, ensure_ascii=False).encode())
 
 
 if __name__ == '__main__':
@@ -99,4 +137,12 @@ if __name__ == '__main__':
     parser.add_argument('--port', default=8000, type=int)
     args = parser.parse_args()
     print(f'行情提示工具已启动，端口 {args.port}；仅提示，不下单。', flush=True)
-    ThreadingHTTPServer((args.host, args.port), Handler).serve_forever()
+    server = ThreadingHTTPServer((args.host, args.port), Handler)
+    config_dir = Path(os.environ.get('BTC_OBSERVER_CONFIG_DIR', str(Path.home()/'.config/btc-observer')))
+    server.phone_monitor = PhoneMonitor(config_dir/'phone.json', report)
+    server.phone_monitor.start()
+    try:
+        server.serve_forever()
+    finally:
+        server.phone_monitor.stop()
+        server.server_close()

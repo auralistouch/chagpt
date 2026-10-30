@@ -5,13 +5,26 @@
   <title>BTC · 十分钟观察台</title><link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <header><div class="logo">₿</div><div><h1>十分钟观察台</h1><p>比特币现货 · 十分钟方向研究 · v1.3.1</p></div><span id="source" class="badge">尚未连接</span></header>
+  <header><div class="logo">₿</div><div><h1>十分钟观察台</h1><p>比特币现货 · 十分钟方向研究 · v1.4</p></div><span id="source" class="badge">尚未连接</span></header>
   <main>
     <div class="notice">仅研究<strong>现货价格方向</strong>，不提供事件合约交易。默认使用币安 BTC/USDT 现货行情，不能替代事件合约实际结算价格。切换到 Coinbase 时使用独立的 BTC/USD 行情，两个来源的结果不可混用。历史表现不保证未来收益。</div>
     <section class="controls">
       <label>数据来源<select id="mode"><option value="live" selected>币安 BTC/USDT（须当地支持）</option><option value="coinbase">Coinbase BTC/USD（行情研究）</option><option value="demo">合成演示（不能交易）</option></select></label>
       <label>模拟净收益比例<input id="payout" type="number" min="1" max="200" value="80" step="1"><span>%（不含返还本金）</span></label>
       <button id="refresh">获取分析</button><label class="auto"><input id="auto" type="checkbox"> 每 30 秒刷新</label>
+    </section>
+    <section class="alert-panel" aria-label="iPhone Bark 提醒">
+      <h3>iPhone 手机提醒 · Bark</h3>
+      <p class="hint">在 iPhone 安装 Bark 并允许通知，将它提供的推送地址粘贴在这里。地址只填本机网页，不要发到聊天或分享截图中。Bark 服务和苹果推送系统会处理设备标识及观察信号。</p>
+      <div class="alert-controls">
+        <label>Bark 推送地址或设备密钥<input id="phone-key" class="phone-key" type="password" autocomplete="off" placeholder="留空保留已保存的地址" maxlength="1024"></label>
+        <label><input id="phone-enabled" type="checkbox"> 启用独立手机监测</label>
+        <button id="phone-save" type="button">保存手机设置</button>
+        <button id="phone-test" class="secondary" type="button" disabled>发送手机测试</button>
+        <button id="phone-stop" class="secondary" type="button">停用手机监测</button>
+      </div>
+      <p id="phone-status" class="hint" role="status" aria-live="polite">正在读取本机手机提醒设置…</p>
+      <p class="hint">保存时使用上方选中的真实行情来源和模拟收益比例。手机监测独立于网页；Mac 程序运行、联网且唤醒时，关闭网页后仍会继续检查。演示、等待或过期行情不发送，每十分钟最多尝试一次；开启后请先发送测试。推送可能延迟，通知不是下单指令。停用时点击“停用手机监测”。</p>
     </section>
     <p id="refresh-status" class="hint" role="status" aria-live="polite">自动刷新已关闭。</p>
     <p class="hint">80% 只是假设的模拟收益，不是 Coinbase 或币安的产品报价。例如模拟投入 100，方向正确赚 80，错误亏 100；不代表现货买卖收益。</p>
@@ -41,5 +54,5 @@
       <section class="card"><h3>后段最近 30 笔模拟记录</h3><div class="table-wrap"><table><thead><tr><th>信号时间</th><th>方向</th><th>模拟入场</th><th>十分钟终价</th><th>结果</th></tr></thead><tbody id="trades"></tbody></table></div><p class="hint">信号只使用已收盘数据；下一分钟开盘价模拟入场，第十分钟收盘价模拟结束。持有期间不重复开仓；平价保守记亏。按每笔固定投入 1 单位计算，未计费用、延迟、价差及真实结算规则。</p></section>
     </div>
     <footer>先模拟观察，再决定是否使用。不要借款交易、不要亏损后翻倍加仓。这里的历史表现不代表未来结果。</footer>
-  </main><script src="/alerts.js"></script><script src="/app.js"></script>
+  </main><script src="/alerts.js"></script><script src="/phone.js"></script><script src="/app.js"></script>
 </body></html>

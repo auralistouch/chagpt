@@ -92,7 +92,10 @@ class RefreshBrowserTests(unittest.TestCase):
         fixture=json.dumps(self.fixture)
         self.page.evaluate('''(fixture) => {
           window.requestCount=0;
-          window.fetch=() => { window.requestCount++; return new Promise(resolve => {
+          const originalFetch=window.fetch;
+          window.fetch=(url,...options) => {
+            if (!url.startsWith('/api/signals?')) return originalFetch(url,...options);
+            window.requestCount++; return new Promise(resolve => {
             window.finishRequest=()=>resolve(new Response(fixture,{headers:{'Content-Type':'application/json'}}));
           }); };
         }''',fixture)
