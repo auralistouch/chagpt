@@ -237,16 +237,16 @@ class HTTPTests(unittest.TestCase):
         self.assertEqual(len(data['chart']), 180)
         self.assertGreater(data['holdout']['total'], 0)
 
-    def test_default_provider_is_coinbase_and_quote_is_usd(self):
+    def test_default_provider_is_binance_and_quote_is_usdt(self):
         app.CACHE.clear()
         data, now = market.demo_candles()
-        with patch('app.fetch_coinbase', return_value=(data, now)) as coinbase, patch('app.fetch_candles') as binance:
+        with patch('app.fetch_candles', return_value=(data, now)) as binance, patch('app.fetch_coinbase') as coinbase:
             with self.get('/api/signals') as response: result = json.load(response)
-        coinbase.assert_called_once()
-        binance.assert_not_called()
-        self.assertEqual(result['source'], 'Coinbase 现货')
-        self.assertEqual(result['pair'], 'BTC / USD')
-        self.assertEqual(result['quote'], 'USD')
+        binance.assert_called_once()
+        coinbase.assert_not_called()
+        self.assertEqual(result['source'], '币安现货')
+        self.assertEqual(result['pair'], 'BTC / USDT')
+        self.assertEqual(result['quote'], 'USDT')
         self.assertFalse(result['demo'])
 
     def test_bad_inputs_and_network_error(self):

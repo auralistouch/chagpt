@@ -42,6 +42,7 @@ class RefreshBrowserTests(unittest.TestCase):
         self.errors=[]
         self.page.on('pageerror',lambda e:self.errors.append(str(e)))
         self.page.goto(f'http://127.0.0.1:{self.server.server_port}')
+        self.assertEqual(self.page.locator('#mode').input_value(), 'live')
         self.calls=[]
 
     def tearDown(self):

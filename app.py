@@ -71,7 +71,7 @@ class Handler(BaseHTTPRequestHandler):
             query = parse_qs(url.query)
             try:
                 payout = float(query.get('payout', ['0.8'])[0])
-                mode = query.get('mode', ['coinbase'])[0]
+                mode = query.get('mode', ['live'])[0]
                 if mode not in ('coinbase', 'live', 'demo') or not math.isfinite(payout) or not 0.01 <= payout <= 2:
                     raise ValueError('模式或净收益比例无效')
                 result = report(mode, payout)

@@ -5,11 +5,11 @@
   <title>BTC · 十分钟观察台</title><link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <header><div class="logo">₿</div><div><h1>十分钟观察台</h1><p>比特币现货 · 十分钟方向研究 · v1.3</p></div><span id="source" class="badge">尚未连接</span></header>
+  <header><div class="logo">₿</div><div><h1>十分钟观察台</h1><p>比特币现货 · 十分钟方向研究 · v1.3.1</p></div><span id="source" class="badge">尚未连接</span></header>
   <main>
-    <div class="notice">仅研究<strong>现货价格方向</strong>，不提供事件合约交易。默认使用 Coinbase BTC/USD 独立行情，与币安 BTC/USDT 价格不同，不能用来代替币安结算或绕过其地区限制。历史表现不保证未来收益。</div>
+    <div class="notice">仅研究<strong>现货价格方向</strong>，不提供事件合约交易。默认使用币安 BTC/USDT 现货行情，不能替代事件合约实际结算价格。切换到 Coinbase 时使用独立的 BTC/USD 行情，两个来源的结果不可混用。历史表现不保证未来收益。</div>
     <section class="controls">
-      <label>数据来源<select id="mode"><option value="coinbase">Coinbase BTC/USD（行情研究）</option><option value="live">币安 BTC/USDT（须当地支持）</option><option value="demo">合成演示（不能交易）</option></select></label>
+      <label>数据来源<select id="mode"><option value="live" selected>币安 BTC/USDT（须当地支持）</option><option value="coinbase">Coinbase BTC/USD（行情研究）</option><option value="demo">合成演示（不能交易）</option></select></label>
       <label>模拟净收益比例<input id="payout" type="number" min="1" max="200" value="80" step="1"><span>%（不含返还本金）</span></label>
       <button id="refresh">获取分析</button><label class="auto"><input id="auto" type="checkbox"> 每 30 秒刷新</label>
     </section>
@@ -31,7 +31,7 @@
     <div id="results" hidden>
       <section class="grid top">
         <article class="signal card"><div class="eyebrow">当前观察结论</div><h2 id="action">等待</h2><p id="signal-note"></p><ul id="blockers"></ul><p class="hint">观察方向不代表可以盈利，不是实际可成交的买点，也不提供事件合约交易资格。</p></article>
-        <article class="card"><div class="eyebrow" id="pair-label">最近收盘参考价 · BTC / USD</div><div id="price" class="number">—</div><dl><dt>信号基准时间</dt><dd id="signal-time"></dd><dt>理论十分钟终点</dt><dd id="expiry"></dd><dt>行情延迟</dt><dd id="age"></dd></dl><p class="hint">参考价不是实时可成交价格；时间使用你的浏览器时区。实际下单延迟会改变结果。</p></article>
+        <article class="card"><div class="eyebrow" id="pair-label">最近收盘参考价 · BTC / USDT</div><div id="price" class="number">—</div><dl><dt>信号基准时间</dt><dd id="signal-time"></dd><dt>理论十分钟终点</dt><dd id="expiry"></dd><dt>行情延迟</dt><dd id="age"></dd></dl><p class="hint">参考价不是实时可成交价格；时间使用你的浏览器时区。实际下单延迟会改变结果。</p></article>
       </section>
       <section class="card chart"><div class="section-head"><h3>最近三小时走势</h3><span>一分钟收盘价</span></div><svg id="chart" viewBox="0 0 1000 220" role="img" aria-label="最近三小时比特币收盘价格曲线"></svg><div id="chart-range" class="hint"></div></section>
       <section class="grid bottom">
