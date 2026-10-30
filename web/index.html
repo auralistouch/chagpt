@@ -5,7 +5,7 @@
   <title>BTC · 十分钟观察台</title><link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <header><div class="logo">₿</div><div><h1>十分钟观察台</h1><p>比特币现货 · 十分钟方向研究 · v1.2</p></div><span id="source" class="badge">尚未连接</span></header>
+  <header><div class="logo">₿</div><div><h1>十分钟观察台</h1><p>比特币现货 · 十分钟方向研究 · v1.3</p></div><span id="source" class="badge">尚未连接</span></header>
   <main>
     <div class="notice">仅研究<strong>现货价格方向</strong>，不提供事件合约交易。默认使用 Coinbase BTC/USD 独立行情，与币安 BTC/USDT 价格不同，不能用来代替币安结算或绕过其地区限制。历史表现不保证未来收益。</div>
     <section class="controls">
@@ -15,6 +15,17 @@
     </section>
     <p id="refresh-status" class="hint" role="status" aria-live="polite">自动刷新已关闭。</p>
     <p class="hint">80% 只是假设的模拟收益，不是 Coinbase 或币安的产品报价。例如模拟投入 100，方向正确赚 80，错误亏 100；不代表现货买卖收益。</p>
+    <section class="alert-panel" aria-label="观察信号提醒">
+      <h3>观察信号提醒</h3>
+      <div class="alert-controls">
+        <label><input id="sound-alerts" type="checkbox" checked> 声音提醒</label>
+        <label><input id="desktop-alerts" type="checkbox"> Mac 桌面通知（需允许）</label>
+        <button id="enable-alerts" type="button">启用提醒并自动刷新</button>
+        <button id="test-alerts" class="secondary" type="button" disabled>测试提醒</button>
+      </div>
+      <p id="alert-status" class="hint" role="status" aria-live="polite">提醒尚未启用。只在真实行情产生有效观察方向时提醒，等待和演示数据不会触发。</p>
+      <p class="hint">无需一直盯着，但须保持程序、浏览器页面及自动刷新运行，Mac 保持唤醒并有声音。后台页面可能延迟；休眠、合盖、断网或关闭页面后不能保证提醒。每十分钟最多提醒一次；刷新页面后需重新启用。请先测试，检查 Mac 专注模式是否拦截通知。</p>
+    </section>
     <div id="error" role="alert" hidden></div>
     <div id="empty" class="empty">选择数据来源，点击“获取分析”。首次获取约 3 天行情可能需要一些时间。<br>未连接时不会显示买点；可切换合成演示查看操作界面。</div>
     <div id="results" hidden>
@@ -30,5 +41,5 @@
       <section class="card"><h3>后段最近 30 笔模拟记录</h3><div class="table-wrap"><table><thead><tr><th>信号时间</th><th>方向</th><th>模拟入场</th><th>十分钟终价</th><th>结果</th></tr></thead><tbody id="trades"></tbody></table></div><p class="hint">信号只使用已收盘数据；下一分钟开盘价模拟入场，第十分钟收盘价模拟结束。持有期间不重复开仓；平价保守记亏。按每笔固定投入 1 单位计算，未计费用、延迟、价差及真实结算规则。</p></section>
     </div>
     <footer>先模拟观察，再决定是否使用。不要借款交易、不要亏损后翻倍加仓。这里的历史表现不代表未来结果。</footer>
-  </main><script src="/app.js"></script>
+  </main><script src="/alerts.js"></script><script src="/app.js"></script>
 </body></html>

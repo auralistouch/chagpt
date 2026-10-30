@@ -225,7 +225,7 @@ class HTTPTests(unittest.TestCase):
     def get(self, path): return urlopen(self.url+path, timeout=10)
 
     def test_page_and_assets(self):
-        for path, marker in [('/', '十分钟观察台'), ('/app.js', 'function render'), ('/style.css', ':root')]:
+        for path, marker in [('/', '十分钟观察台'), ('/app.js', 'function render'), ('/alerts.js', 'maybeNotify'), ('/style.css', ':root')]:
             with self.get(path) as response:
                 self.assertEqual(response.status, 200)
                 self.assertIn(marker, response.read().decode())

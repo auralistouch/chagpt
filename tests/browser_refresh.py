@@ -36,6 +36,7 @@ class RefreshBrowserTests(unittest.TestCase):
         cls.server.shutdown(); cls.server.server_close(); cls.thread.join()
 
     def setUp(self):
+        self.fixture = json.loads(json.dumps(type(self).fixture))
         self.page = self.browser.new_page()
         self.page.clock.install()
         self.errors=[]
@@ -110,6 +111,107 @@ class RefreshBrowserTests(unittest.TestCase):
         expect(self.page.locator('#error')).to_have_text('本机程序处理请求失败')
         self.tick(5000,2)
         expect(self.page.locator('#source')).to_have_text('币安现货 · 已获取')
+
+    def mock_alert_apis(self):
+        self.page.evaluate('''() => {
+          window.sentNotifications=[]; window.permissionRequests=0; window.tones=0;
+          window.permissionDecision='granted';
+          window.Notification=class {
+            static permission='default';
+            static requestPermission() {
+              window.permissionRequests++;
+              this.permission=window.permissionDecision;
+              return Promise.resolve(this.permission);
+            }
+            constructor(title,options) {
+              this.record={title,...options,closed:false};
+              window.sentNotifications.push(this.record);
+            }
+            close() { this.record.closed=true; }
+          };
+          window.AudioContext=class {
+            constructor() { this.state='suspended';this.currentTime=0; }
+            resume() { this.state='running';return Promise.resolve(); }
+            createOscillator() {
+              return {frequency:{},connect(){},start(){window.tones++;},stop(){}};
+            }
+            createGain() {
+              return {gain:{setValueAtTime(){},exponentialRampToValueAtTime(){}},connect(){}};
+            }
+          };
+        }''')
+
+    def test_alerts_are_opt_in_and_deduplicate_refreshes_with_ten_minute_cooldown(self):
+        self.mock_alert_apis(); self.route(['ok'])
+        self.page.click('#refresh')
+        expect(self.page.locator('#source')).to_have_text('币安现货 · 已获取')
+        self.assertEqual(self.page.evaluate('window.tones'),0)
+        self.assertEqual(self.page.evaluate('window.permissionRequests'),0)
+        self.page.check('#desktop-alerts')
+        self.page.click('#enable-alerts')
+        expect(self.page.locator('#alert-status')).to_contain_text('已请求提醒')
+        self.assertEqual(self.page.evaluate('window.permissionRequests'),1)
+        self.assertEqual(self.page.evaluate('window.sentNotifications.length'),1)
+        self.assertEqual(self.page.evaluate('window.tones'),3)
+        self.tick(30000,3)
+        self.assertEqual(self.page.evaluate('window.sentNotifications.length'),1)
+        self.fixture['signal_time']+=60000
+        self.tick(30000,4)
+        self.assertEqual(self.page.evaluate('window.sentNotifications.length'),1)
+        self.fixture['signal_time']+=540000
+        self.tick(30000,5)
+        self.assertEqual(self.page.evaluate('window.sentNotifications.length'),2)
+
+    def test_demo_wait_and_expired_data_do_not_alert_but_explicit_test_works(self):
+        self.mock_alert_apis()
+        self.fixture['action']='WAIT'; self.route(['ok'])
+        self.page.check('#desktop-alerts'); self.page.click('#enable-alerts')
+        expect(self.page.locator('#source')).to_have_text('币安现货 · 已获取')
+        for overrides in [dict(action='WAIT'),dict(action='UP',demo=True),dict(action='UP',data_age_seconds=90),dict(action='UP',data_age_seconds=100),dict(action='UP',data_age_seconds=30,request_duration_seconds=70)]:
+            candidate={**self.fixture,**overrides}
+            self.page.evaluate('(data)=>window.signalAlerts.maybeNotify(data)',candidate)
+        self.assertEqual(self.page.evaluate('window.sentNotifications.length'),0)
+        self.assertEqual(self.page.evaluate('window.tones'),0)
+        self.page.click('#test-alerts')
+        self.assertIn('测试提醒',self.page.evaluate('window.sentNotifications[0].title'))
+        self.assertIsNone(self.page.evaluate("localStorage.getItem('btc-observer-last-alert-v1')"))
+        self.page.evaluate('(data)=>window.signalAlerts.maybeNotify(data)',{**self.fixture,'action':'UP'})
+        self.assertEqual(self.page.evaluate('window.sentNotifications.length'),2)
+
+    def test_notification_denial_keeps_sound_and_disable_stops_alerts(self):
+        self.mock_alert_apis(); self.fixture['action']='WAIT'; self.route(['ok'])
+        self.page.evaluate("window.permissionDecision='denied'")
+        self.page.check('#desktop-alerts'); self.page.click('#enable-alerts')
+        expect(self.page.locator('#alert-status')).to_contain_text('桌面通知被拒绝')
+        expect(self.page.locator('#source')).to_have_text('币安现货 · 已获取')
+        self.page.click('#test-alerts')
+        self.assertEqual(self.page.evaluate('window.tones'),3)
+        self.assertEqual(self.page.evaluate('window.sentNotifications.length'),0)
+        self.page.click('#enable-alerts')
+        self.page.evaluate('(data)=>window.signalAlerts.maybeNotify(data)',{**self.fixture,'action':'UP'})
+        self.assertEqual(self.page.evaluate('window.tones'),3)
+        expect(self.page.locator('#alert-status')).to_have_text('提醒已停用。')
+
+    def test_alert_cooldown_survives_reload_but_enable_does_not(self):
+        self.mock_alert_apis();self.route(['ok'])
+        self.page.check('#desktop-alerts'); self.page.click('#enable-alerts')
+        expect(self.page.locator('#alert-status')).to_contain_text('已请求提醒')
+        self.assertEqual(self.page.evaluate('window.sentNotifications.length'),1)
+        self.page.reload(); self.mock_alert_apis()
+        expect(self.page.locator('#enable-alerts')).to_have_text('启用提醒并自动刷新')
+        self.page.check('#desktop-alerts'); self.page.click('#enable-alerts')
+        expect(self.page.locator('#source')).to_have_text('币安现货 · 已获取')
+        self.assertEqual(self.page.evaluate('window.sentNotifications.length'),0)
+        self.assertEqual(self.page.evaluate('window.tones'),0)
+
+    def test_no_available_alert_channel_does_not_claim_enabled(self):
+        self.mock_alert_apis();self.route(['ok'])
+        self.page.evaluate("() => { window.permissionDecision='denied';window.AudioContext.prototype.resume=()=>Promise.reject(new Error('blocked')); }")
+        self.page.check('#desktop-alerts'); self.page.click('#enable-alerts')
+        expect(self.page.locator('#alert-status')).to_contain_text('未能启用提醒')
+        expect(self.page.locator('#test-alerts')).to_be_disabled()
+        expect(self.page.locator('#auto')).not_to_be_checked()
+        self.assertEqual(len(self.calls),0)
 
 
 if __name__=='__main__': unittest.main(verbosity=2)

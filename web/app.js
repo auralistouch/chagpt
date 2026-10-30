@@ -21,6 +21,7 @@ function tile(title, value, className = '') {
   div.append(label, strong); return div;
 }
 function invalidate() {
+  window.signalAlerts?.pause();
   generation++;
   hasResult = false;
   clearTimeout(expiryTimer);
@@ -29,6 +30,7 @@ function invalidate() {
   text('source', '设置已变更 · 请重新获取');
 }
 function pauseSignal(message) {
+  window.signalAlerts?.pause();
   clearTimeout(expiryTimer);
   text('action', '等待 · 暂停信号'); $('action').className = '';
   text('signal-note', message);
@@ -77,6 +79,7 @@ function render(data) {
   // Do not leave a once-valid direction on screen after data expires.
   clearTimeout(expiryTimer);
   expiryTimer = setTimeout(() => {
+    window.signalAlerts?.pause();
     text('action', '等待 · 行情已过期'); $('action').className = '';
     text('source', '行情已过期 · 请刷新');
     text('signal-note', '已停止显示方向，请重新获取分析。');
@@ -94,6 +97,7 @@ async function load() {
   text('refresh-status', '正在请求，完成后才安排下一次刷新。');
   $('error').hidden = true;
   const ticket = ++generation;
+  const requestStarted = performance.now();
   pauseSignal('正在更新行情；上次数据仅供回看，暂停方向提示。');
   text('source', '正在更新 · 暂停信号');
   const controller = new AbortController();
@@ -113,6 +117,7 @@ async function load() {
     if (ticket !== generation) return;
     if (!response.ok) throw new Error(data.error || '行情获取失败');
     render(data);
+    window.signalAlerts?.maybeNotify({...data, request_duration_seconds: Math.max(0, performance.now()-requestStarted)/1000});
     failures = 0;
   } catch (error) {
     if (ticket !== generation) return;

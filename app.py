@@ -85,6 +85,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(500, json.dumps({'error': '本机程序处理请求失败。请查看 start.command 终端中的错误，并将提示发给协助人员。'}, ensure_ascii=False).encode())
         names = {'/': ('index.html', 'text/html; charset=utf-8'),
                  '/style.css': ('style.css', 'text/css; charset=utf-8'),
+                 '/alerts.js': ('alerts.js', 'text/javascript; charset=utf-8'),
                  '/app.js': ('app.js', 'text/javascript; charset=utf-8')}
         if url.path not in names:
             return self.send(404, b'{"error":"Not found"}')
