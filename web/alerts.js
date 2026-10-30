@@ -3,11 +3,40 @@
   const el = id => document.getElementById(id);
   const status = message => { el('alert-status').textContent = message; };
   const storageKey = 'btc-observer-last-alert-v1';
+  const preferenceKey = 'btc-observer-alert-preferences-v1';
+  let preferences = {enabled:true, sound:true, desktop:true, auto:true};
+  try {
+    const saved=JSON.parse(localStorage.getItem(preferenceKey));
+    if (saved && ['enabled','sound','desktop','auto'].every(key=>typeof saved[key]==='boolean')) preferences=saved;
+  } catch { /* Defaults remain usable when browser storage is unavailable. */ }
   let enabled = false;
   let context;
   let activeNotification;
   let closeTimer;
   let lastAlert;
+
+  function remember() {
+    preferences={enabled,sound:el('sound-alerts').checked,desktop:el('desktop-alerts').checked,auto:el('auto').checked};
+    try { localStorage.setItem(preferenceKey,JSON.stringify(preferences)); } catch { /* Keep current page state. */ }
+  }
+  function desktopReady() {
+    return el('desktop-alerts').checked && 'Notification' in window && Notification.permission==='granted';
+  }
+  function updateControls() {
+    const soundReady=el('sound-alerts').checked && context?.state==='running';
+    el('enable-alerts').textContent=enabled?'停用提醒':'启用提醒并自动刷新';
+    el('test-alerts').disabled=!enabled || !(soundReady || desktopReady());
+    el('unlock-alerts').hidden=!enabled || ((!el('sound-alerts').checked || soundReady) && (!el('desktop-alerts').checked || desktopReady()));
+  }
+  function describe() {
+    updateControls();
+    if (!enabled) return status('提醒已停用，已记住此设置。');
+    const messages=['提醒已启用，刷新后会自动恢复'];
+    if (el('sound-alerts').checked) messages.push(context?.state==='running'?'声音已就绪':'声音等待浏览器解锁，请点击“授权通知 / 启用声音”');
+    if (el('desktop-alerts').checked) messages.push(desktopReady()?'桌面通知权限已获准':'桌面通知尚未获准或此浏览器不支持，请点击授权；若已拒绝需在浏览器设置中允许');
+    if (!el('sound-alerts').checked && !el('desktop-alerts').checked) messages.push('尚未选择提醒通道');
+    status(messages.join('；')+'。请测试实际效果。');
+  }
 
   function readLast() {
     try {
@@ -25,8 +54,7 @@
   }
   function disable(message = '提醒已停用。') {
     enabled = false; pause();
-    el('enable-alerts').textContent = '启用提醒并自动刷新';
-    el('test-alerts').disabled = true;
+    remember();updateControls();
     status(message);
   }
   async function armSound() {
@@ -65,8 +93,8 @@
       return true;
     } catch { return false; }
   }
-  async function enable() {
-    if (enabled) return disable();
+  async function enable(force=false) {
+    if (enabled && !force) return disable();
     if (!el('sound-alerts').checked && !el('desktop-alerts').checked) {
       status('请先勾选声音或 Mac 桌面通知。'); return;
     }
@@ -80,26 +108,21 @@
       }
       const [soundReady, desktopPermission] = await Promise.all([sound, permission]);
       const desktopReady = el('desktop-alerts').checked && desktopPermission === 'granted';
-      enabled = soundReady || desktopReady;
-      if (!enabled) {
-        status('未能启用提醒。请检查浏览器声音权限和通知权限，或换用支持的浏览器后重试。'); return;
-      }
-      const messages = [];
-      if (el('sound-alerts').checked) messages.push(soundReady ? '声音已启用' : '声音不可用');
-      if (el('desktop-alerts').checked) messages.push(desktopReady ? '桌面通知权限已获准' : '桌面通知被拒绝或此浏览器不支持');
-      status(messages.join('；')+'。请点击“测试提醒”确认实际能听到或看到。');
-      el('enable-alerts').textContent = '停用提醒';
-      el('test-alerts').disabled = false;
+      enabled = true;
+      describe();
+      if (!soundReady && !desktopReady) status('已记住启用设置，但声音和通知均未就绪。请检查浏览器权限，或换用支持的浏览器后再测试。');
       if (!el('auto').checked) {
         el('auto').checked = true;
         el('auto').dispatchEvent(new Event('change'));
       }
+      remember();
     } catch {
       disable('提醒权限请求失败，请检查浏览器设置后重试。');
     } finally { el('enable-alerts').disabled = false; }
   }
-  function test() {
+  async function test() {
     if (!enabled) return;
+    if (el('sound-alerts').checked) await armSound();
     const sound = tone();
     const notified = desktop('测试提醒 · 不是交易信号', '这只是通知测试，请确认是否看见；没有产生买点。', 'btc-observer-test');
     status(sound || notified ? '已请求发送测试提醒。请确认是否听到声音或看见通知；若没有，请检查音量、浏览器权限及 Mac 专注模式。' : '测试未能发送。请重新启用提醒，并检查权限或浏览器支持。');
@@ -128,8 +151,26 @@
       status('发现观察方向，但提醒未能发送。请重新启用并测试声音和通知权限。');
     }
   }
-  el('enable-alerts').addEventListener('click', enable);
+  el('enable-alerts').addEventListener('click', ()=>enable());
+  el('unlock-alerts').addEventListener('click', ()=>enable(true));
   el('test-alerts').addEventListener('click', test);
-  ['sound-alerts', 'desktop-alerts'].forEach(id => el(id).addEventListener('change', () => disable('提醒选项已改变，请重新点击“启用提醒并自动刷新”。')));
+  ['sound-alerts', 'desktop-alerts'].forEach(id => el(id).addEventListener('change', () => {remember();describe();}));
+  el('auto').addEventListener('change',remember);
+  window.addEventListener('observer-ready',()=>{
+    enabled=preferences.enabled;
+    el('sound-alerts').checked=preferences.sound;
+    el('desktop-alerts').checked=preferences.desktop;
+    el('auto').checked=preferences.auto;
+    if (enabled && preferences.sound) {
+      try { const Audio=window.AudioContext || window.webkitAudioContext;if(Audio) context=new Audio(); } catch { /* Show pending sound status. */ }
+    }
+    describe();
+    if (preferences.auto) el('auto').dispatchEvent(new Event('change'));
+  },{once:true});
+  // Browsers may suspend sound after a reload. A real user interaction can
+  // resume it; notification permission is requested only by the explicit button.
+  ['pointerdown','keydown'].forEach(name=>document.addEventListener(name,event=>{
+    if (event.isTrusted && enabled && el('sound-alerts').checked && context?.state!=='running') armSound().then(()=>{if(enabled) describe();});
+  }));
   window.signalAlerts = {maybeNotify, pause};
 })();

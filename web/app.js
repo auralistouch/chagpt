@@ -147,3 +147,4 @@ document.addEventListener('visibilitychange', () => {
 window.addEventListener('online', () => {
   if ($('auto').checked && !loading) scheduleRefresh(0);
 });
+window.dispatchEvent(new Event('observer-ready'));

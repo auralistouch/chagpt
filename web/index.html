@@ -5,7 +5,7 @@
   <title>BTC · 十分钟观察台</title><link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <header><div class="logo">₿</div><div><h1>十分钟观察台</h1><p>比特币现货 · 十分钟方向研究 · v1.4</p></div><span id="source" class="badge">尚未连接</span></header>
+  <header><div class="logo">₿</div><div><h1>十分钟观察台</h1><p>比特币现货 · 十分钟方向研究 · v1.5</p></div><span id="source" class="badge">尚未连接</span></header>
   <main>
     <div class="notice">仅研究<strong>现货价格方向</strong>，不提供事件合约交易。默认使用币安 BTC/USDT 现货行情，不能替代事件合约实际结算价格。切换到 Coinbase 时使用独立的 BTC/USD 行情，两个来源的结果不可混用。历史表现不保证未来收益。</div>
     <section class="controls">
@@ -18,7 +18,7 @@
       <p class="hint">在 iPhone 安装 Bark 并允许通知，将它提供的推送地址粘贴在这里。地址只填本机网页，不要发到聊天或分享截图中。Bark 服务和苹果推送系统会处理设备标识及观察信号。</p>
       <div class="alert-controls">
         <label>Bark 推送地址或设备密钥<input id="phone-key" class="phone-key" type="password" autocomplete="off" placeholder="留空保留已保存的地址" maxlength="1024"></label>
-        <label><input id="phone-enabled" type="checkbox"> 启用独立手机监测</label>
+        <label><input id="phone-enabled" type="checkbox" checked> 启用独立手机监测（自动保存）</label>
         <button id="phone-save" type="button">保存手机设置</button>
         <button id="phone-test" class="secondary" type="button" disabled>发送手机测试</button>
         <button id="phone-stop" class="secondary" type="button">停用手机监测</button>
@@ -32,12 +32,13 @@
       <h3>观察信号提醒</h3>
       <div class="alert-controls">
         <label><input id="sound-alerts" type="checkbox" checked> 声音提醒</label>
-        <label><input id="desktop-alerts" type="checkbox"> Mac 桌面通知（需允许）</label>
+        <label><input id="desktop-alerts" type="checkbox" checked> Mac 桌面通知（自动记住，需允许）</label>
         <button id="enable-alerts" type="button">启用提醒并自动刷新</button>
+        <button id="unlock-alerts" class="secondary" type="button" hidden>授权通知 / 启用声音</button>
         <button id="test-alerts" class="secondary" type="button" disabled>测试提醒</button>
       </div>
-      <p id="alert-status" class="hint" role="status" aria-live="polite">提醒尚未启用。只在真实行情产生有效观察方向时提醒，等待和演示数据不会触发。</p>
-      <p class="hint">无需一直盯着，但须保持程序、浏览器页面及自动刷新运行，Mac 保持唤醒并有声音。后台页面可能延迟；休眠、合盖、断网或关闭页面后不能保证提醒。每十分钟最多提醒一次；刷新页面后需重新启用。请先测试，检查 Mac 专注模式是否拦截通知。</p>
+      <p id="alert-status" class="hint" role="status" aria-live="polite">正在恢复提醒设置。只在真实行情产生有效观察方向时提醒，等待和演示数据不会触发。</p>
+      <p class="hint">默认启用提醒与自动刷新，刷新网页会恢复上次设置；主动停用也会被记住。浏览器首次通知授权和刷新后的声音解锁可能仍需点击一次。Mac 桌面提醒须保持网页运行；手机监测独立运行。休眠、合盖或断网会影响提醒，每十分钟最多提醒一次。请先测试，并检查专注模式。</p>
     </section>
     <div id="error" role="alert" hidden></div>
     <div id="empty" class="empty">选择数据来源，点击“获取分析”。首次获取约 3 天行情可能需要一些时间。<br>未连接时不会显示买点；可切换合成演示查看操作界面。</div>

@@ -30,6 +30,7 @@ class PhoneBrowserTests(unittest.TestCase):
                 with sync_playwright() as p:
                     browser=p.chromium.launch(executable_path=shutil.which('chromium'),headless=True,args=['--no-sandbox'])
                     page=browser.new_page(viewport={'width':390,'height':844})
+                    page.route('**/api/signals?**',lambda route:route.fulfill(status=503,content_type='application/json',body=json.dumps({'error':'Test market disabled'})))
                     errors=[];page.on('pageerror',lambda error:errors.append(str(error)))
                     page.goto(f'http://127.0.0.1:{server.server_port}')
                     expect(page.locator('#phone-status')).to_contain_text('尚未保存')
@@ -40,6 +41,9 @@ class PhoneBrowserTests(unittest.TestCase):
                     self.assertEqual(page.locator('#phone-key').input_value(),'')
                     self.assertNotIn(FAKE_KEY,page.locator('body').inner_text())
                     expect(page.locator('#phone-test')).to_be_enabled()
+                    page.reload()
+                    expect(page.locator('#phone-status')).to_contain_text('推送地址已保存在本机')
+                    expect(page.locator('#phone-enabled')).to_be_checked()
                     page.click('#phone-test')
                     expect(page.locator('#phone-status')).to_contain_text('已接受测试请求')
                     sender.assert_called_once()
@@ -50,7 +54,7 @@ class PhoneBrowserTests(unittest.TestCase):
                     self.assertFalse(monitor.status()['enabled'])
                     # Enable again, then close the browser: the worker keeps
                     # checking without browser polling or page notifications.
-                    page.select_option('#mode','live');page.check('#phone-enabled');page.click('#phone-save')
+                    page.select_option('#mode','live');page.check('#phone-enabled')
                     expect(page.locator('#phone-status')).to_contain_text('手机监测已启用')
                     calls_before=reporter.call_count
                     self.assertEqual(errors,[])
