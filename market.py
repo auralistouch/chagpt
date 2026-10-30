@@ -1,5 +1,6 @@
 """Independent public spot feeds; never substitute one exchange for another."""
 from datetime import datetime, timezone
+from http.client import HTTPException
 import json
 import math
 import random
@@ -27,6 +28,8 @@ def request(path, base=BASE, name='币安'):
         if isinstance(reason, ssl.SSLCertVerificationError):
             raise RuntimeError(f"{name}证书验证失败。请运行 Python 文件夹中的 Install Certificates.command 后重启程序。") from e
         raise RuntimeError(f"无法连接{name}行情（{type(reason).__name__}），请检查网络是否允许 {base.split('//')[1]} 的 HTTPS 请求") from e
+    except HTTPException as e:
+        raise RuntimeError(f'{name}行情响应中途断开或不完整，请稍后重试') from e
 
 
 def fetch_coinbase(previous=None):
@@ -71,9 +74,26 @@ def fetch_coinbase(previous=None):
     return candles, exchange_now
 
 
-def fetch_candles():
+def fetch_candles(previous=None):
     exchange_now = int(request('/api/v3/time')['serverTime'])
     end = exchange_now//MINUTE*MINUTE-1
+    oldest = end+1-4320*MINUTE
+    existing = {c.time: c for c in (previous or []) if oldest <= c.time <= end}
+    if len(existing) >= 4000 and max(existing) >= end+1-999*MINUTE:
+        start = max(existing)
+        batch = request(f'/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=1000&startTime={start}&endTime={end}')
+        if not isinstance(batch, list) or not batch:
+            raise RuntimeError('币安返回的最新行情不足，暂停提示')
+        updated = {int(r[0]): Candle(int(r[0]), *[float(x) for x in r[1:6]]) for r in batch}
+        updated = {t: c for t, c in updated.items() if start <= t <= end}
+        if len(updated) != (end+1-start)//MINUTE:
+            raise RuntimeError('币安最新行情存在缺失，暂停提示')
+        existing.update(updated)
+        candles = [existing[t] for t in sorted(existing)]
+        if len(candles) != 4320:
+            raise RuntimeError('币安连续行情不足三天，暂停提示')
+        validate(candles)
+        return candles, exchange_now
     rows = []
     # 3 days, paginated backwards; discard the current unclosed candle.
     remaining = 4320

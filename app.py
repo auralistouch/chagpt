@@ -6,6 +6,7 @@ import math
 from pathlib import Path
 import threading
 import time
+import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 from market import fetch_candles, fetch_coinbase, demo_candles
@@ -25,8 +26,10 @@ def report(mode, payout):
                 started = time.monotonic()
                 if mode == 'coinbase':
                     candles, exchange_now = fetch_coinbase(saved.get('candles') if saved else None)
+                elif mode == 'live':
+                    candles, exchange_now = fetch_candles(saved.get('candles') if saved else None)
                 else:
-                    candles, exchange_now = demo_candles() if mode == 'demo' else fetch_candles()
+                    candles, exchange_now = demo_candles()
                 finished = time.monotonic()
                 # Include request time in candle age; slow downloads must not
                 # make old market data look freshly observed.
@@ -34,7 +37,8 @@ def report(mode, payout):
                 CACHE[mode] = saved
             except (RuntimeError, ValueError, KeyError, TypeError, IndexError) as e:
                 # Cache failures too, so browser refreshes cannot hammer the provider.
-                saved = dict(error=str(e), fetched=time.monotonic())
+                previous = saved.get('candles') if saved else None
+                saved = dict(error=str(e), fetched=time.monotonic(), candles=previous)
                 CACHE[mode] = saved
         if 'error' in saved:
             raise RuntimeError(saved['error'])
@@ -54,7 +58,10 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Cache-Control', 'no-store')
         self.send_header('X-Content-Type-Options', 'nosniff')
         self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # The browser may have navigated away during a slow request.
 
     def do_GET(self):
         url = urlsplit(self.path)
@@ -73,6 +80,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(400, json.dumps({'error': str(e)}, ensure_ascii=False).encode())
             except RuntimeError as e:
                 return self.send(503, json.dumps({'error': str(e)}, ensure_ascii=False).encode())
+            except Exception:
+                traceback.print_exc()
+                return self.send(500, json.dumps({'error': '本机程序处理请求失败。请查看 start.command 终端中的错误，并将提示发给协助人员。'}, ensure_ascii=False).encode())
         names = {'/': ('index.html', 'text/html; charset=utf-8'),
                  '/style.css': ('style.css', 'text/css; charset=utf-8'),
                  '/app.js': ('app.js', 'text/javascript; charset=utf-8')}

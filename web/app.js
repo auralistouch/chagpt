@@ -5,6 +5,8 @@ let loading = false;
 let timer;
 let expiryTimer;
 let generation = 0;
+let failures = 0;
+let hasResult = false;
 
 function text(id, value) { $(id).textContent = value; }
 function list(id, values) {
@@ -20,12 +22,25 @@ function tile(title, value, className = '') {
 }
 function invalidate() {
   generation++;
+  hasResult = false;
   clearTimeout(expiryTimer);
   $('results').hidden = true;
   $('empty').hidden = false;
   text('source', '设置已变更 · 请重新获取');
 }
+function pauseSignal(message) {
+  clearTimeout(expiryTimer);
+  text('action', '等待 · 暂停信号'); $('action').className = '';
+  text('signal-note', message);
+}
+function scheduleRefresh(delay) {
+  clearTimeout(timer);
+  if (!$('auto').checked) return;
+  text('refresh-status', failures ? `连接暂时失败，${delay/1000} 秒后自动重试（第 ${failures} 次失败）。` : `${delay/1000} 秒后自动刷新。`);
+  timer = setTimeout(() => load(), delay);
+}
 function render(data) {
+  hasResult = true;
   $('empty').hidden = true; $('error').hidden = true; $('results').hidden = false;
   text('source', data.demo ? '演示数据 · 禁止交易' : `${data.source} · 已获取`);
   text('pair-label', `最近收盘参考价 · ${data.pair}`);
@@ -69,29 +84,61 @@ function render(data) {
 }
 async function load() {
   if (loading) return;
+  clearTimeout(timer);
   const payout = Number($('payout').value)/100;
   if (!Number.isFinite(payout) || payout < 0.01 || payout > 2) {
-    invalidate(); text('error', '请填写 1% 至 200% 之间的净收益比例。'); $('error').hidden = false; return;
+    invalidate(); text('error', '请填写 1% 至 200% 之间的净收益比例。'); $('error').hidden = false;
+    text('refresh-status', '参数无效，请修改后重新获取。'); return;
   }
   loading = true; $('refresh').disabled = true; text('refresh', '正在获取…');
-  invalidate();
-  const ticket = generation;
+  text('refresh-status', '正在请求，完成后才安排下一次刷新。');
+  $('error').hidden = true;
+  const ticket = ++generation;
+  pauseSignal('正在更新行情；上次数据仅供回看，暂停方向提示。');
+  text('source', '正在更新 · 暂停信号');
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 100000);
+  let nextDelay = 30000;
   try {
-    const response = await fetch(`/api/signals?mode=${$('mode').value}&payout=${payout}`, {signal: controller.signal});
-    const data = await response.json();
+    let response;
+    try {
+      response = await fetch(`/api/signals?mode=${$('mode').value}&payout=${payout}`, {signal: controller.signal, cache: 'no-store'});
+    } catch (error) {
+      if (error.name === 'AbortError') throw error;
+      throw new Error('浏览器未能连接本机程序。请保持 start.command 终端打开，并确认 Mac 未进入睡眠；连接恢复后会按设置自动重试。');
+    }
+    let data;
+    try { data = await response.json(); }
+    catch { throw new Error('本机程序返回了不完整的响应，请查看 start.command 终端中的错误提示。'); }
     if (ticket !== generation) return;
     if (!response.ok) throw new Error(data.error || '行情获取失败');
     render(data);
+    failures = 0;
   } catch (error) {
     if (ticket !== generation) return;
-    $('results').hidden = true; $('empty').hidden = true;
-    text('error', error.name === 'AbortError' ? '行情请求超时，请稍后重试。' : error.message);
+    failures++;
+    nextDelay = Math.min(60000, 5000*2**Math.min(failures-1, 4));
+    $('results').hidden = !hasResult; $('empty').hidden = true;
+    pauseSignal('连接已中断。下方若有数据，是上次成功获取的记录，不能作为当前信号。');
+    text('error', error.name === 'AbortError' ? '行情请求超时，已暂停信号。请检查本机网络及 start.command 终端。' : error.message);
     $('error').hidden = false; text('source', '未连接 · 暂停信号');
-  } finally { clearTimeout(timeout); loading = false; $('refresh').disabled = false; text('refresh', '获取分析'); }
+  } finally {
+    clearTimeout(timeout); loading = false; $('refresh').disabled = false; text('refresh', '获取分析');
+    if ($('auto').checked) scheduleRefresh(ticket === generation ? nextDelay : 0);
+    else text('refresh-status', '自动刷新已关闭。可点击“获取分析”重试。');
+  }
 }
-$('refresh').addEventListener('click', load);
+$('refresh').addEventListener('click', () => load());
 $('mode').addEventListener('change', invalidate);
 $('payout').addEventListener('input', invalidate);
-$('auto').addEventListener('change', () => { clearInterval(timer); if ($('auto').checked) { load(); timer = setInterval(load, 30000); } });
+$('auto').addEventListener('change', () => {
+  clearTimeout(timer);
+  if ($('auto').checked) { failures = 0; load(); }
+  else text('refresh-status', '自动刷新已关闭。');
+});
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && $('auto').checked && !loading) scheduleRefresh(0);
+});
+window.addEventListener('online', () => {
+  if ($('auto').checked && !loading) scheduleRefresh(0);
+});

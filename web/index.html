@@ -5,7 +5,7 @@
   <title>BTC · 十分钟观察台</title><link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <header><div class="logo">₿</div><div><h1>十分钟观察台</h1><p>比特币现货 · 十分钟方向研究 · v1.1</p></div><span id="source" class="badge">尚未连接</span></header>
+  <header><div class="logo">₿</div><div><h1>十分钟观察台</h1><p>比特币现货 · 十分钟方向研究 · v1.2</p></div><span id="source" class="badge">尚未连接</span></header>
   <main>
     <div class="notice">仅研究<strong>现货价格方向</strong>，不提供事件合约交易。默认使用 Coinbase BTC/USD 独立行情，与币安 BTC/USDT 价格不同，不能用来代替币安结算或绕过其地区限制。历史表现不保证未来收益。</div>
     <section class="controls">
@@ -13,6 +13,7 @@
       <label>模拟净收益比例<input id="payout" type="number" min="1" max="200" value="80" step="1"><span>%（不含返还本金）</span></label>
       <button id="refresh">获取分析</button><label class="auto"><input id="auto" type="checkbox"> 每 30 秒刷新</label>
     </section>
+    <p id="refresh-status" class="hint" role="status" aria-live="polite">自动刷新已关闭。</p>
     <p class="hint">80% 只是假设的模拟收益，不是 Coinbase 或币安的产品报价。例如模拟投入 100，方向正确赚 80，错误亏 100；不代表现货买卖收益。</p>
     <div id="error" role="alert" hidden></div>
     <div id="empty" class="empty">选择数据来源，点击“获取分析”。首次获取约 3 天行情可能需要一些时间。<br>未连接时不会显示买点；可切换合成演示查看操作界面。</div>

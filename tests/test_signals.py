@@ -87,6 +87,41 @@ class StrategyTests(unittest.TestCase):
 
 
 class ProviderTests(unittest.TestCase):
+    def test_partial_http_response_becomes_readable_error(self):
+        from http.client import IncompleteRead
+        with patch('market.urlopen'), patch('market.json.load', side_effect=IncompleteRead(b'partial', 20)):
+            with self.assertRaisesRegex(RuntimeError, '响应中途断开或不完整'):
+                market.request('/api/v3/time')
+
+    def test_binance_incremental_refresh_only_fetches_latest_window(self):
+        from urllib.parse import parse_qs, urlsplit
+        previous = [Candle(i*MINUTE,100,102,99,101,5) for i in range(680,5000)]
+        calls = []
+        def response(path):
+            calls.append(path)
+            if path.endswith('/time'): return {'serverTime': 5002*MINUTE+12345}
+            query = parse_qs(urlsplit(path).query)
+            self.assertEqual(int(query['startTime'][0]), 4999*MINUTE)
+            end = int(query['endTime'][0])//MINUTE
+            return [[i*MINUTE,100,102,99,101,5] for i in range(4999,end+1)]
+        with patch('market.request',side_effect=response): data, now = market.fetch_candles(previous)
+        self.assertEqual(len(calls),2)
+        self.assertEqual(len(data),4320)
+        self.assertEqual(data[0].time,682*MINUTE)
+        self.assertEqual(data[-1].time,5001*MINUTE)
+
+    def test_error_keeps_cache_for_recovery_but_never_serves_stale_success(self):
+        previous, now = market.demo_candles()
+        app.CACHE.clear()
+        app.CACHE['live'] = dict(candles=previous,clock=now,fetched=0)
+        with patch('app.time.monotonic',return_value=100), patch('app.fetch_candles',side_effect=RuntimeError('temporary disconnect')):
+            with self.assertRaisesRegex(RuntimeError, 'temporary disconnect'): app.report('live',.8)
+        self.assertEqual(app.CACHE['live']['candles'],previous)
+        with patch('app.time.monotonic',return_value=131), patch('app.fetch_candles',return_value=(previous,now)) as provider:
+            result=app.report('live',.8)
+        provider.assert_called_once_with(previous)
+        self.assertFalse(result['demo'])
+
     def coinbase_response(self, clock_minute=5000, missing=False):
         from datetime import datetime
         from urllib.parse import parse_qs, urlsplit
@@ -223,6 +258,13 @@ class HTTPTests(unittest.TestCase):
             with self.assertRaises(HTTPError) as error: self.get('/api/signals?mode=live')
             self.assertEqual(error.exception.code, 503)
             self.assertIn('network blocked', error.exception.read().decode())
+
+    def test_unexpected_error_returns_json_instead_of_disconnecting(self):
+        with patch('app.report',side_effect=ArithmeticError('unexpected failure')), patch('app.traceback.print_exc') as logged:
+            with self.assertRaises(HTTPError) as error: self.get('/api/signals?mode=demo')
+            self.assertEqual(error.exception.code,500)
+            self.assertIn('本机程序处理请求失败',json.load(error.exception)['error'])
+            logged.assert_called_once()
 
 
 if __name__ == '__main__': unittest.main()
