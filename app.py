@@ -8,7 +8,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
-from market import fetch_candles, demo_candles
+from market import fetch_candles, fetch_coinbase, demo_candles
 from strategy import analyze
 
 ROOT = Path(__file__).resolve().parent/'web'
@@ -23,7 +23,10 @@ def report(mode, payout):
         if not saved or now-saved['fetched'] >= 30:
             try:
                 started = time.monotonic()
-                candles, exchange_now = demo_candles() if mode == 'demo' else fetch_candles()
+                if mode == 'coinbase':
+                    candles, exchange_now = fetch_coinbase(saved.get('candles') if saved else None)
+                else:
+                    candles, exchange_now = demo_candles() if mode == 'demo' else fetch_candles()
                 finished = time.monotonic()
                 # Include request time in candle age; slow downloads must not
                 # make old market data look freshly observed.
@@ -36,7 +39,11 @@ def report(mode, payout):
         if 'error' in saved:
             raise RuntimeError(saved['error'])
         clock = saved['clock']+int((time.monotonic()-saved['fetched'])*1000)
-        return analyze(saved['candles'], clock, payout, mode == 'demo')
+        result = analyze(saved['candles'], clock, payout, mode == 'demo')
+        result['source'] = {'coinbase': 'Coinbase 现货', 'live': '币安现货', 'demo': '合成演示'}[mode]
+        result['pair'] = 'BTC / USD' if mode == 'coinbase' else 'BTC / USDT'
+        result['quote'] = 'USD' if mode == 'coinbase' else 'USDT'
+        return result
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -57,8 +64,8 @@ class Handler(BaseHTTPRequestHandler):
             query = parse_qs(url.query)
             try:
                 payout = float(query.get('payout', ['0.8'])[0])
-                mode = query.get('mode', ['live'])[0]
-                if mode not in ('live', 'demo') or not math.isfinite(payout) or not 0.01 <= payout <= 2:
+                mode = query.get('mode', ['coinbase'])[0]
+                if mode not in ('coinbase', 'live', 'demo') or not math.isfinite(payout) or not 0.01 <= payout <= 2:
                     raise ValueError('模式或净收益比例无效')
                 result = report(mode, payout)
                 return self.send(200, json.dumps(result, ensure_ascii=False, allow_nan=False).encode())

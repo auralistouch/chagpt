@@ -27,10 +27,11 @@ function invalidate() {
 }
 function render(data) {
   $('empty').hidden = true; $('error').hidden = true; $('results').hidden = false;
-  text('source', data.demo ? '演示数据 · 禁止交易' : '币安现货 · 已获取');
+  text('source', data.demo ? '演示数据 · 禁止交易' : `${data.source} · 已获取`);
+  text('pair-label', `最近收盘参考价 · ${data.pair}`);
   text('action', {WAIT: '等待 · 暂无可用买点', UP: '观察看涨 ↑', DOWN: '观察看跌 ↓'}[data.action]);
   $('action').className = data.action === 'UP' ? 'positive' : data.action === 'DOWN' ? 'negative' : '';
-  text('signal-note', data.demo ? '这是合成行情，用于熟悉界面，任何回测数值均无交易意义。' : '观察信号基于已收盘的一分钟 K 线，不承诺未来十分钟方向。');
+  text('signal-note', data.demo ? '这是合成行情，用于熟悉界面，任何回测数值均无交易意义。' : `基于 ${data.source} 的已收盘一分钟 K 线，仅研究价格方向，不等于事件合约交易信号。`);
   list('blockers', data.blockers);
   text('price', price(data.reference_price)); text('signal-time', time(data.signal_time));
   text('expiry', time(data.estimated_expiry)); text('age', `${data.data_age_seconds} 秒（请求时）`);
@@ -57,7 +58,7 @@ function render(data) {
   const line = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
   line.setAttribute('points', points); line.setAttribute('fill', 'none'); line.setAttribute('stroke', '#f4c15b'); line.setAttribute('stroke-width', '2');
   $('chart').replaceChildren(line);
-  text('chart-range', `${time(data.chart[0].time)} — ${time(data.chart.at(-1).time)} · 最低 ${price(low)} / 最高 ${price(high)} USDT`);
+  text('chart-range', `${time(data.chart[0].time)} — ${time(data.chart.at(-1).time)} · 最低 ${price(low)} / 最高 ${price(high)} ${data.quote}`);
   // Do not leave a once-valid direction on screen after data expires.
   clearTimeout(expiryTimer);
   expiryTimer = setTimeout(() => {

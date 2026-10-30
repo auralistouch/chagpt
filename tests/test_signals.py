@@ -87,6 +87,60 @@ class StrategyTests(unittest.TestCase):
 
 
 class ProviderTests(unittest.TestCase):
+    def coinbase_response(self, clock_minute=5000, missing=False):
+        from datetime import datetime
+        from urllib.parse import parse_qs, urlsplit
+        calls = []
+        def response(path, base, name):
+            self.assertEqual(base, market.COINBASE)
+            self.assertEqual(name, 'Coinbase')
+            calls.append(path)
+            if path == '/time': return {'epoch': clock_minute*60+12.345}
+            query = parse_qs(urlsplit(path).query)
+            start = int(datetime.fromisoformat(query['start'][0]).timestamp())//60
+            last = int(datetime.fromisoformat(query['end'][0]).timestamp())//60
+            # Unordered response, with extra out-of-window buckets.
+            rows = [[i*60, '99', '102', '100', '101', '5'] for i in range(start-1, last+2)]
+            if missing: rows = [r for r in rows if r[0] != start*60]
+            return list(reversed(rows))
+        return response, calls
+
+    def test_coinbase_pagination_sort_units_and_no_open_candle(self):
+        response, calls = self.coinbase_response()
+        with patch('market.request', side_effect=response), patch('market.time.sleep'):
+            data, now = market.fetch_coinbase()
+        self.assertEqual(len(data), 4320)
+        self.assertEqual(data[0].time, 680*MINUTE)
+        self.assertEqual(data[-1].time, 4999*MINUTE)
+        self.assertEqual(data[-1].open, 100)
+        self.assertEqual(data[-1].low, 99)
+        self.assertEqual(data[-1].high, 102)
+        self.assertEqual(data[-1].close, 101)
+        self.assertEqual(len(calls), 16)  # time + 15 pages
+        self.assertLessEqual(data[-1].time+MINUTE, now)
+
+    def test_coinbase_incremental_refresh_does_not_redownload_three_days(self):
+        previous = [Candle(i*MINUTE,100,102,99,101,5) for i in range(680,5000)]
+        response, calls = self.coinbase_response(clock_minute=5002)
+        with patch('market.request', side_effect=response):
+            data, now = market.fetch_coinbase(previous)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(len(data), 4320)
+        self.assertEqual(data[0].time, 682*MINUTE)
+        self.assertEqual(data[-1].time, 5001*MINUTE)
+
+    def test_coinbase_missing_data_is_never_fabricated(self):
+        response, calls = self.coinbase_response(missing=True)
+        with patch('market.request', side_effect=response):
+            with self.assertRaisesRegex(RuntimeError, '缺失'): market.fetch_coinbase()
+
+    def test_coinbase_failure_never_calls_binance(self):
+        app.CACHE.clear()
+        with patch('app.fetch_coinbase', side_effect=RuntimeError('Coinbase unavailable')), patch('app.fetch_candles') as binance, patch('app.demo_candles') as demo:
+            with self.assertRaisesRegex(RuntimeError, 'Coinbase unavailable'): app.report('coinbase', .8)
+            binance.assert_not_called()
+            demo.assert_not_called()
+
     def test_slow_download_does_not_hide_staleness(self):
         app.CACHE.clear()
         data = candles()
@@ -147,6 +201,18 @@ class HTTPTests(unittest.TestCase):
         self.assertEqual(data['action'], 'WAIT')
         self.assertEqual(len(data['chart']), 180)
         self.assertGreater(data['holdout']['total'], 0)
+
+    def test_default_provider_is_coinbase_and_quote_is_usd(self):
+        app.CACHE.clear()
+        data, now = market.demo_candles()
+        with patch('app.fetch_coinbase', return_value=(data, now)) as coinbase, patch('app.fetch_candles') as binance:
+            with self.get('/api/signals') as response: result = json.load(response)
+        coinbase.assert_called_once()
+        binance.assert_not_called()
+        self.assertEqual(result['source'], 'Coinbase 现货')
+        self.assertEqual(result['pair'], 'BTC / USD')
+        self.assertEqual(result['quote'], 'USD')
+        self.assertFalse(result['demo'])
 
     def test_bad_inputs_and_network_error(self):
         for query in ['payout=NaN', 'payout=-1', 'mode=unknown']:
