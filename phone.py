@@ -187,7 +187,6 @@ class PhoneMonitor:
             quote_age = data.get('quote_age_seconds')
             valid = (not data.get('demo') and data.get('action') in ('UP', 'DOWN')
                      and data.get('price_kind') == 'index' and settings['mode'] == 'live'
-                     and settings['payout'] == .8
                      and isinstance(quote_age, (int, float)) and math.isfinite(quote_age) and 0 <= quote_age < 15
                      and isinstance(stamp, (int, float)) and math.isfinite(stamp)
                      and isinstance(age, (int, float)) and math.isfinite(age) and 0 <= age < 75)
@@ -197,7 +196,7 @@ class PhoneMonitor:
                 self.last_diagnostics = {k: data.get(k) for k in (
                     'source', 'volume_source', 'action', 'signal_time', 'observation_time',
                     'data_age_seconds', 'quote_age_seconds', 'price_kind', 'metrics', 'diagnostics',
-                    'blocker_codes', 'blockers')}
+                    'blocker_codes', 'blockers', 'payout', 'breakeven_pct')}
                 self._record('check_result', duration_ms=self.last_check-check_started,
                              **self.last_diagnostics, holdout={k: data.get('holdout', {}).get(k) for k in (
                                  'total', 'wins', 'losses', 'unresolved', 'lower_bound', 'profit_units', 'exact', 'by_direction')})
@@ -223,7 +222,7 @@ class PhoneMonitor:
                 self.state = candidate
                 direction = '看涨' if data['action'] == 'UP' else '看跌'
                 baseline = datetime.fromtimestamp(stamp/1000).astimezone().isoformat(timespec='seconds')
-                body = f"{data.get('source', '')} · {data.get('pair', '')}\n指数快照 {data.get('reference_price')}\n指标基准 {baseline}\n官方规则：提交后下一秒取开仓指数，再过600秒结算；平价退本金。验证假设赢+80%/输-100%，实际赔率以确认订单为准。此快照不是实际开仓价；仅供观察，不是下单指令。"
+                body = f"{data.get('source', '')} · {data.get('pair', '')}\n指数快照 {data.get('reference_price')}\n指标基准 {baseline}\n官方规则：提交后下一秒取开仓指数，再过600秒结算；平价退本金。验证假设赢+{settings['payout']*100:g}%/输-100%，实际赔率以确认订单为准。此快照不是实际开仓价；仅供观察，不是下单指令。"
             # Network I/O must not block saving a stop request or reading status.
             with self.lock:
                 if revision != self.revision or self.stop_event.is_set(): return
@@ -265,3 +264,4 @@ class PhoneMonitor:
     def stop(self):
         self.stop_event.set(); self.wake.set()
         if self.thread: self.thread.join(timeout=2)
+

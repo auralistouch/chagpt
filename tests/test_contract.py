@@ -91,11 +91,31 @@ class ContractTests(unittest.TestCase):
         features = [dict(qualified=True, direction='UP')]*len(data)
         with patch('strategy.indicators', return_value=features), patch('strategy.backtest', return_value=dict(total=40,wins=40)):
             for values, code in [({}, 'not_index'), ({'price_kind':'index'}, 'stale_index_quote'),
-                                 ({'price_kind':'index','quote':{'time':clock-15000,'price':100}}, 'stale_index_quote'),
-                                 ({'price_kind':'index','quote':{'time':clock,'price':100},'payout':.9}, 'payout_mismatch')]:
+                                 ({'price_kind':'index','quote':{'time':clock-15000,'price':100}}, 'stale_index_quote')]:
                 result = analyze(data, clock, **values)
                 self.assertEqual(result['action'], 'WAIT')
                 self.assertIn(code, result['blocker_codes'])
+
+    def test_dynamic_payout_flows_through_gate_replay_and_phone(self):
+        data = history()
+        clock = len(data)*MINUTE
+        features = [dict(qualified=True, direction='UP')]*len(data)
+        with patch('strategy.indicators', return_value=features), patch('strategy.backtest', return_value=dict(total=40,wins=40)):
+            result = analyze(data, clock, payout=.75, price_kind='index', quote=dict(time=clock, price=100))
+        self.assertEqual(result['action'], 'UP')
+        self.assertEqual(result['breakeven_pct'], 57.14)
+        submit = 61*MINUTE
+        opened, expiry = contract_times(submit)
+        result = exact_replay(data, {opened:100, expiry:101}, [submit], features, payout=.75)
+        self.assertEqual(result['early']['profit_units'], .75)
+        self.assertEqual(result['payout'], .75)
+        with tempfile.TemporaryDirectory() as directory:
+            sender = Mock()
+            monitor = PhoneMonitor(Path(directory)/'phone.json', lambda *args:dict(action='UP',demo=False,signal_time=submit,data_age_seconds=1,quote_age_seconds=1,price_kind='index'), sender)
+            monitor.configure(dict(key='fake-test-key-only', enabled=True, mode='live', payout=.75))
+            monitor.check_once()
+            sender.assert_called_once()
+            self.assertIn('赢+75%', sender.call_args.args[2])
 
     def test_frequency_audit_does_not_call_candidates_pushes(self):
         result = audit(history(4320))
@@ -233,3 +253,4 @@ class DiagnosticTests(unittest.TestCase):
 
 
 if __name__ == '__main__': unittest.main()
+

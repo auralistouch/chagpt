@@ -164,7 +164,6 @@ def analyze(candles, now_ms, payout=0.8, demo=False, price_kind='spot', quote=No
     def block(code, message):
         codes.append(code); blockers.append(message)
     if price_kind != 'index': block('not_index', '当前来源不是币安 BTCUSDT 指数，仅供研究，不发送合约观察提醒')
-    if payout != .8: block('payout_mismatch', '当前合约验证固定为赢净赚80%；其他比例仅供研究')
     if demo: block('demo', '当前为合成演示行情，禁止用于交易')
     if not current['qualified']:
         block('indicators', '当前未同时满足全部五项指标条件')
@@ -195,3 +194,4 @@ def analyze(candles, now_ms, payout=0.8, demo=False, price_kind='spot', quote=No
                 breakeven_pct=round(100*breakeven, 2), payout=payout,
                 early=early, holdout=holdout,
                 chart=[dict(time=c.time, price=c.close) for c in candles[-180:]])
+

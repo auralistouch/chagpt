@@ -32,7 +32,7 @@ def settle(direction, entry, exit_price, payout=Decimal('.8')):
     return ('WIN', payout) if won else ('LOSS', Decimal(-1))
 
 
-def exact_replay(candles, ticks, decisions=None, features=None):
+def exact_replay(candles, ticks, decisions=None, features=None, payout=.8):
     """Replay fixed indicator candidates, NOT historical production pushes.
 
     Match both exact exchange timestamps. Missing endpoints stay unscored and
@@ -40,6 +40,9 @@ def exact_replay(candles, ticks, decisions=None, features=None):
     decisions can be ANY submission instants; minute boundaries are just a
     default sampling schedule, not a contract entry restriction.
     """
+    payout = Decimal(str(payout))
+    if not payout.is_finite() or not Decimal('.01') <= payout <= 2:
+        raise ValueError('净收益比例必须在1%至200%之间')
     validate(candles)
     features = indicators(candles) if features is None else features
     if len(features) != len(candles): raise ValueError('指标长度不一致')
@@ -69,7 +72,7 @@ def exact_replay(candles, ticks, decisions=None, features=None):
         elif opened not in prices or expiry not in prices:
             row.update(outcome='MISSING_INDEX', profit=None)
         else:
-            outcome, profit = settle(row['direction'], prices[opened], prices[expiry])
+            outcome, profit = settle(row['direction'], prices[opened], prices[expiry], payout)
             row.update(outcome=outcome, profit=float(profit), entry=str(prices[opened]), exit=str(prices[expiry]))
         trades.append(row)
     def summary(rows, begin, end):
@@ -101,7 +104,7 @@ def exact_replay(candles, ticks, decisions=None, features=None):
                     daily_utc=days)
     early = [t for t in trades if t['segment'] == 'early']
     holdout = [t for t in trades if t['segment'] == 'holdout']
-    return dict(timing_rule='next_second_open_then_600s', payout=.8, tie_profit=0,
+    return dict(timing_rule='next_second_open_then_600s', payout=float(payout), tie_profit=0,
                 exact_endpoints=True, source_claim='caller supplied Binance BTCUSDT index; verify provenance',
                 production_push_backtest=False,
                 note='固定规则候选方向验证；未重演逐次滚动的生产统计门槛，不等于正式提醒次数。缺失端点不补价。部分UTC日单独保留，不外推每天频次。',
@@ -114,6 +117,7 @@ def main():
     parser.add_argument('--candles', required=True, help='time_ms,open,high,low,close,spot_volume；OHLC必须为指数')
     parser.add_argument('--ticks', required=True, help='time_ms,index_price；必须为精确交易所时间的指数样本')
     parser.add_argument('--decisions', help='可选 time_ms 列，任意时刻提交时间')
+    parser.add_argument('--payout', type=Decimal, default=Decimal('.8'), help='假设净收益比例，例如0.75；非官方固定赔率')
     parser.add_argument('--output', required=True)
     args = parser.parse_args()
     with open(args.candles, newline='', encoding='utf-8') as stream:
@@ -129,7 +133,7 @@ def main():
     if args.decisions:
         with open(args.decisions, newline='', encoding='utf-8') as stream:
             decisions = [int(r['time_ms']) for r in csv.DictReader(stream)]
-    result = exact_replay(candles, ticks, decisions)
+    result = exact_replay(candles, ticks, decisions, payout=args.payout)
     result['inputs_sha256'] = {name: hashlib.sha256(Path(path).read_bytes()).hexdigest()
                                for name, path in (('candles', args.candles), ('ticks', args.ticks))}
     Path(args.output).write_text(json.dumps(result, ensure_ascii=False, indent=2, allow_nan=False)+'\n', encoding='utf-8')
@@ -137,3 +141,4 @@ def main():
 
 
 if __name__ == '__main__': main()
+
