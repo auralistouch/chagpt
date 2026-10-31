@@ -19,7 +19,7 @@ STAMP = 1_793_332_000_000
 
 def observation(**overrides):
     return dict(action='UP', demo=False, signal_time=STAMP, data_age_seconds=10,
-                source='币安现货', pair='BTC / USDT', reference_price=70000, **overrides)
+                price_kind='index', quote_age_seconds=1, source='币安 BTCUSDT 指数', pair='BTC / USDT', reference_price=70000, **overrides)
 
 
 class PhoneTests(unittest.TestCase):
@@ -53,7 +53,7 @@ class PhoneTests(unittest.TestCase):
         self.sender.assert_called_once()
         restored=PhoneMonitor(self.path,self.reporter,self.sender)
         restored.check_once();self.sender.assert_called_once()
-        self.reporter.return_value={**observation(),'signal_time':STAMP+600000}
+        self.reporter.return_value={**observation(),'signal_time':STAMP+660000}
         restored.check_once();self.assertEqual(self.sender.call_count,2)
 
     def test_wait_demo_old_and_invalid_data_are_suppressed(self):

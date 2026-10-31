@@ -23,15 +23,17 @@ class StrategyTests(unittest.TestCase):
         self.assertEqual(indicators(original)[:100], indicators(changed)[:100])
         self.assertEqual(indicators(original[:100]), indicators(original)[:100])
 
-    def test_ten_minute_settlement_next_open_and_nonoverlap(self):
+    def test_official_timing_envelopes_and_nonoverlap(self):
         data = candles()
         features = [dict(qualified=True, direction='UP') for _ in data]
-        result = backtest(data, features, 60, 84, .8)
+        result = backtest(data, features, 60, 86, .8)
         self.assertEqual(result['total'], 2)
         first, second = result['trades']
-        self.assertEqual(first['entry'], data[61].open)
-        self.assertEqual(first['exit'], data[70].close)
-        self.assertEqual(first['time']+10*MINUTE, data[70].time+MINUTE)
+        self.assertIsNone(first['entry'])
+        self.assertEqual(first['entry_range'], [data[61].low, data[61].high])
+        self.assertIsNone(first['exit'])
+        self.assertEqual(first['exit_range'], [data[71].low, data[72].high])
+        self.assertEqual(first['expiry']-first['time'], 601000)
         self.assertGreaterEqual(second['time'], first['time']+10*MINUTE)
         self.assertTrue(first['won'])
         self.assertAlmostEqual(result['profit_units'], 1.6)
@@ -42,11 +44,12 @@ class StrategyTests(unittest.TestCase):
         result = backtest(data, features, 60, 100, .8)
         self.assertTrue(all(t['time']+10*MINUTE <= 100*MINUTE for t in result['trades']))
 
-    def test_ties_loss_and_drawdown(self):
+    def test_unknown_envelope_is_not_fabricated_tie(self):
         data = [Candle(i*MINUTE, 100, 101, 99, 100, 10) for i in range(100)]
         features = [dict(qualified=True, direction='DOWN') for _ in data]
-        result = backtest(data, features, 60, 84, .8)
-        self.assertEqual(result['ties'], 2)
+        result = backtest(data, features, 60, 86, .8)
+        self.assertEqual(result['ties'], 0)
+        self.assertEqual(result['unresolved'], 2)
         self.assertEqual(result['wins'], 0)
         self.assertEqual(result['profit_units'], -2)
         self.assertEqual(result['max_drawdown_units'], 2)
@@ -78,12 +81,12 @@ class StrategyTests(unittest.TestCase):
         data = candles()
         features = [dict(qualified=True, direction='UP') for _ in data]
         with patch('strategy.indicators', return_value=features), patch('strategy.backtest', return_value=dict(total=40, wins=40)):
-            self.assertEqual(analyze(data, 200*MINUTE)['action'], 'UP')
+            self.assertEqual(analyze(data, 200*MINUTE, price_kind='index', quote={'price':101,'time':200*MINUTE})['action'], 'UP')
             self.assertEqual(analyze(data, 200*MINUTE, demo=True)['action'], 'WAIT')
             self.assertEqual(analyze(data, 202*MINUTE)['action'], 'WAIT')
         for stats in [dict(total=29, wins=29), dict(total=40, wins=20)]:
             with patch('strategy.indicators', return_value=features), patch('strategy.backtest', return_value=stats):
-                self.assertEqual(analyze(data, 200*MINUTE)['action'], 'WAIT')
+                self.assertEqual(analyze(data, 200*MINUTE, price_kind='index', quote={'price':101,'time':200*MINUTE})['action'], 'WAIT')
 
 
 class ProviderTests(unittest.TestCase):
@@ -114,10 +117,10 @@ class ProviderTests(unittest.TestCase):
         previous, now = market.demo_candles()
         app.CACHE.clear()
         app.CACHE['live'] = dict(candles=previous,clock=now,fetched=0)
-        with patch('app.time.monotonic',return_value=100), patch('app.fetch_candles',side_effect=RuntimeError('temporary disconnect')):
+        with patch('app.time.monotonic',return_value=100), patch('app.fetch_index_candles',side_effect=RuntimeError('temporary disconnect')):
             with self.assertRaisesRegex(RuntimeError, 'temporary disconnect'): app.report('live',.8)
         self.assertEqual(app.CACHE['live']['candles'],previous)
-        with patch('app.time.monotonic',return_value=131), patch('app.fetch_candles',return_value=(previous,now)) as provider:
+        with patch('app.fetch_index_quote', return_value={'price':101,'time':now}), patch('app.time.monotonic',return_value=131), patch('app.fetch_index_candles',return_value=(previous,now)) as provider:
             result=app.report('live',.8)
         provider.assert_called_once_with(previous)
         self.assertFalse(result['demo'])
@@ -171,7 +174,7 @@ class ProviderTests(unittest.TestCase):
 
     def test_coinbase_failure_never_calls_binance(self):
         app.CACHE.clear()
-        with patch('app.fetch_coinbase', side_effect=RuntimeError('Coinbase unavailable')), patch('app.fetch_candles') as binance, patch('app.demo_candles') as demo:
+        with patch('app.fetch_coinbase', side_effect=RuntimeError('Coinbase unavailable')), patch('app.fetch_index_candles') as binance, patch('app.demo_candles') as demo:
             with self.assertRaisesRegex(RuntimeError, 'Coinbase unavailable'): app.report('coinbase', .8)
             binance.assert_not_called()
             demo.assert_not_called()
@@ -179,7 +182,7 @@ class ProviderTests(unittest.TestCase):
     def test_slow_download_does_not_hide_staleness(self):
         app.CACHE.clear()
         data = candles()
-        with patch('app.fetch_candles', return_value=(data, 200*MINUTE)), patch('app.time.monotonic', side_effect=[0, 0, 120, 120]):
+        with patch('app.fetch_index_quote', return_value={'price':101,'time':200*MINUTE}), patch('app.fetch_index_candles', return_value=(data, 200*MINUTE)), patch('app.time.monotonic', side_effect=[0, 0, 120, 120]):
             result = app.report('live', .8)
         self.assertEqual(result['data_age_seconds'], 120)
         self.assertEqual(result['action'], 'WAIT')
@@ -203,7 +206,7 @@ class ProviderTests(unittest.TestCase):
 
     def test_failures_cached_without_demo_fallback(self):
         app.CACHE.clear()
-        with patch('app.fetch_candles', side_effect=RuntimeError('network blocked')) as provider, patch('app.demo_candles') as demo:
+        with patch('app.fetch_index_quote', return_value={'price':101,'time':200*MINUTE}), patch('app.fetch_index_candles', side_effect=RuntimeError('network blocked')) as provider, patch('app.demo_candles') as demo:
             for _ in range(2):
                 with self.assertRaisesRegex(RuntimeError, 'network blocked'): app.report('live', .8)
             provider.assert_called_once()
@@ -240,11 +243,11 @@ class HTTPTests(unittest.TestCase):
     def test_default_provider_is_binance_and_quote_is_usdt(self):
         app.CACHE.clear()
         data, now = market.demo_candles()
-        with patch('app.fetch_candles', return_value=(data, now)) as binance, patch('app.fetch_coinbase') as coinbase:
+        with patch('app.fetch_index_quote', return_value={'price':101,'time':200*MINUTE}), patch('app.fetch_index_candles', return_value=(data, now)) as binance, patch('app.fetch_coinbase') as coinbase:
             with self.get('/api/signals') as response: result = json.load(response)
         binance.assert_called_once()
         coinbase.assert_not_called()
-        self.assertEqual(result['source'], '币安现货')
+        self.assertEqual(result['source'], '币安 BTCUSDT 指数')
         self.assertEqual(result['pair'], 'BTC / USDT')
         self.assertEqual(result['quote'], 'USDT')
         self.assertFalse(result['demo'])
@@ -254,7 +257,7 @@ class HTTPTests(unittest.TestCase):
             with self.assertRaises(HTTPError) as error: self.get('/api/signals?'+query)
             self.assertEqual(error.exception.code, 400)
         app.CACHE.clear()
-        with patch('app.fetch_candles', side_effect=RuntimeError('network blocked')):
+        with patch('app.fetch_index_quote', return_value={'price':101,'time':200*MINUTE}), patch('app.fetch_index_candles', side_effect=RuntimeError('network blocked')):
             with self.assertRaises(HTTPError) as error: self.get('/api/signals?mode=live')
             self.assertEqual(error.exception.code, 503)
             self.assertIn('network blocked', error.exception.read().decode())

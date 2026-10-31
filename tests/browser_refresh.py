@@ -28,7 +28,7 @@ class RefreshBrowserTests(unittest.TestCase):
         data, now = demo_candles()
         cls.fixture = analyze(data, now, demo=False)
         # Force an observation direction to check that disconnects remove it.
-        cls.fixture.update(action='UP',source='币安现货',pair='BTC / USDT',quote='USDT',data_age_seconds=0)
+        cls.fixture.update(action='UP',price_kind='index',quote_age_seconds=0,source='币安 BTCUSDT 指数',pair='BTC / USDT',quote='USDT',data_age_seconds=0)
 
     @classmethod
     def tearDownClass(cls):
@@ -67,7 +67,7 @@ class RefreshBrowserTests(unittest.TestCase):
     def test_auto_disconnect_recovers_without_manual_click_and_clears_direction(self):
         self.route(['ok','abort','ok'])
         self.page.check('#auto')
-        expect(self.page.locator('#source')).to_have_text('币安现货 · 已获取')
+        expect(self.page.locator('#source')).to_have_text('币安 BTCUSDT 指数 · 已获取')
         self.assertIn('观察看涨',self.page.locator('#action').inner_text())
         self.tick(30000,2)
         expect(self.page.locator('#error')).to_contain_text('浏览器未能连接本机程序')
@@ -76,7 +76,7 @@ class RefreshBrowserTests(unittest.TestCase):
         expect(self.page.locator('#refresh-status')).to_contain_text('5 秒后自动重试')
         self.tick(5000,3)
         expect(self.page.locator('#error')).to_be_hidden()
-        expect(self.page.locator('#source')).to_have_text('币安现货 · 已获取')
+        expect(self.page.locator('#source')).to_have_text('币安 BTCUSDT 指数 · 已获取')
 
     def test_backoff_and_unchecking_cancels_retries(self):
         self.route(['abort'])
@@ -101,10 +101,10 @@ class RefreshBrowserTests(unittest.TestCase):
           }); };
         }''',fixture)
         self.page.check('#auto')
-        self.page.clock.run_for(90000)
+        self.page.clock.run_for(75000)
         self.assertEqual(self.page.evaluate('window.requestCount'),1)
         self.page.evaluate('window.finishRequest()')
-        expect(self.page.locator('#source')).to_have_text('币安现货 · 已获取')
+        expect(self.page.locator('#source')).to_have_text('币安 BTCUSDT 指数 · 已获取')
         self.page.clock.run_for(29000)
         self.assertEqual(self.page.evaluate('window.requestCount'),1)
         self.page.clock.run_for(1000)
@@ -115,7 +115,7 @@ class RefreshBrowserTests(unittest.TestCase):
         self.page.check('#auto')
         expect(self.page.locator('#error')).to_have_text('本机程序处理请求失败')
         self.tick(5000,2)
-        expect(self.page.locator('#source')).to_have_text('币安现货 · 已获取')
+        expect(self.page.locator('#source')).to_have_text('币安 BTCUSDT 指数 · 已获取')
 
     def mock_alert_apis(self, persistent=False):
         script='''() => {
@@ -149,10 +149,10 @@ class RefreshBrowserTests(unittest.TestCase):
         if persistent:
             self.page.add_init_script('('+script+")();window.Notification.permission='granted';")
 
-    def test_saved_disabled_preference_and_ten_minute_cooldown(self):
+    def test_saved_disabled_preference_and_601_second_cooldown(self):
         self.mock_alert_apis(); self.route(['ok'])
         self.page.click('#refresh')
-        expect(self.page.locator('#source')).to_have_text('币安现货 · 已获取')
+        expect(self.page.locator('#source')).to_have_text('币安 BTCUSDT 指数 · 已获取')
         self.assertEqual(self.page.evaluate('window.tones'),0)
         self.assertEqual(self.page.evaluate('window.permissionRequests'),0)
         self.page.check('#desktop-alerts')
@@ -166,7 +166,7 @@ class RefreshBrowserTests(unittest.TestCase):
         self.fixture['signal_time']+=60000
         self.tick(30000,4)
         self.assertEqual(self.page.evaluate('window.sentNotifications.length'),1)
-        self.fixture['signal_time']+=540000
+        self.fixture['signal_time']+=600000
         self.tick(30000,5)
         self.assertEqual(self.page.evaluate('window.sentNotifications.length'),2)
 
@@ -174,8 +174,8 @@ class RefreshBrowserTests(unittest.TestCase):
         self.mock_alert_apis()
         self.fixture['action']='WAIT'; self.route(['ok'])
         self.page.check('#desktop-alerts'); self.page.click('#enable-alerts')
-        expect(self.page.locator('#source')).to_have_text('币安现货 · 已获取')
-        for overrides in [dict(action='WAIT'),dict(action='UP',demo=True),dict(action='UP',data_age_seconds=90),dict(action='UP',data_age_seconds=100),dict(action='UP',data_age_seconds=30,request_duration_seconds=70)]:
+        expect(self.page.locator('#source')).to_have_text('币安 BTCUSDT 指数 · 已获取')
+        for overrides in [dict(action='WAIT'),dict(action='UP',demo=True),dict(action='UP',data_age_seconds=75),dict(action='UP',data_age_seconds=100),dict(action='UP',quote_age_seconds=15),dict(action='UP',price_kind='spot'),dict(action='UP',data_age_seconds=30,request_duration_seconds=70)]:
             candidate={**self.fixture,**overrides}
             self.page.evaluate('(data)=>window.signalAlerts.maybeNotify(data)',candidate)
         self.assertEqual(self.page.evaluate('window.sentNotifications.length'),0)
@@ -186,12 +186,21 @@ class RefreshBrowserTests(unittest.TestCase):
         self.page.evaluate('(data)=>window.signalAlerts.maybeNotify(data)',{**self.fixture,'action':'UP'})
         self.assertEqual(self.page.evaluate('window.sentNotifications.length'),2)
 
+    def test_index_quote_expiry_removes_direction_and_closes_notification(self):
+        self.mock_alert_apis(); self.route(['ok'])
+        self.page.check('#desktop-alerts'); self.page.click('#enable-alerts')
+        expect(self.page.locator('#action')).to_contain_text('观察看涨')
+        self.page.uncheck('#auto')
+        self.page.clock.run_for(15001)
+        expect(self.page.locator('#action')).to_contain_text('行情已过期')
+        self.assertTrue(self.page.evaluate('window.sentNotifications[0].closed'))
+
     def test_notification_denial_keeps_sound_and_disable_stops_alerts(self):
         self.mock_alert_apis(); self.fixture['action']='WAIT'; self.route(['ok'])
         self.page.evaluate("window.permissionDecision='denied'")
         self.page.check('#desktop-alerts'); self.page.click('#enable-alerts')
         expect(self.page.locator('#alert-status')).to_contain_text('桌面通知尚未获准')
-        expect(self.page.locator('#source')).to_have_text('币安现货 · 已获取')
+        expect(self.page.locator('#source')).to_have_text('币安 BTCUSDT 指数 · 已获取')
         self.page.click('#test-alerts')
         self.assertEqual(self.page.evaluate('window.tones'),3)
         self.assertEqual(self.page.evaluate('window.sentNotifications.length'),0)
@@ -209,7 +218,7 @@ class RefreshBrowserTests(unittest.TestCase):
         expect(self.page.locator('#enable-alerts')).to_have_text('停用提醒')
         expect(self.page.locator('#desktop-alerts')).to_be_checked()
         expect(self.page.locator('#auto')).to_be_checked()
-        expect(self.page.locator('#source')).to_have_text('币安现货 · 已获取')
+        expect(self.page.locator('#source')).to_have_text('币安 BTCUSDT 指数 · 已获取')
         self.assertEqual(self.page.evaluate('window.sentNotifications.length'),0)
         self.assertEqual(self.page.evaluate('window.tones'),0)
 
@@ -220,7 +229,7 @@ class RefreshBrowserTests(unittest.TestCase):
         expect(self.page.locator('#alert-status')).to_contain_text('声音和通知均未就绪')
         expect(self.page.locator('#test-alerts')).to_be_disabled()
         expect(self.page.locator('#auto')).to_be_checked()
-        expect(self.page.locator('#source')).to_have_text('币安现货 · 已获取')
+        expect(self.page.locator('#source')).to_have_text('币安 BTCUSDT 指数 · 已获取')
 
     def test_fresh_page_defaults_on_without_requesting_permission(self):
         self.page.close()
@@ -232,14 +241,14 @@ class RefreshBrowserTests(unittest.TestCase):
         expect(self.page.locator('#auto')).to_be_checked()
         expect(self.page.locator('#desktop-alerts')).to_be_checked()
         expect(self.page.locator('#enable-alerts')).to_have_text('停用提醒')
-        expect(self.page.locator('#source')).to_have_text('币安现货 · 已获取')
+        expect(self.page.locator('#source')).to_have_text('币安 BTCUSDT 指数 · 已获取')
         self.assertEqual(self.page.evaluate('window.permissionRequests'),0)
         self.assertEqual(self.page.evaluate('window.sentNotifications.length'),1)
 
     def test_explicitly_disabled_preference_survives_reload(self):
         self.mock_alert_apis(persistent=True);self.fixture['action']='WAIT';self.route(['ok'])
         self.page.check('#desktop-alerts');self.page.click('#enable-alerts')
-        expect(self.page.locator('#source')).to_have_text('币安现货 · 已获取')
+        expect(self.page.locator('#source')).to_have_text('币安 BTCUSDT 指数 · 已获取')
         self.page.click('#enable-alerts')
         self.page.reload()
         expect(self.page.locator('#enable-alerts')).to_have_text('启用提醒并自动刷新')

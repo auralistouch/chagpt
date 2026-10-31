@@ -10,7 +10,7 @@ import time
 import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
-from market import fetch_candles, fetch_coinbase, demo_candles
+from market import fetch_candles, fetch_coinbase, demo_candles, fetch_index_candles, fetch_index_quote
 from strategy import analyze
 from phone import PhoneMonitor
 
@@ -29,7 +29,7 @@ def report(mode, payout):
                 if mode == 'coinbase':
                     candles, exchange_now = fetch_coinbase(saved.get('candles') if saved else None)
                 elif mode == 'live':
-                    candles, exchange_now = fetch_candles(saved.get('candles') if saved else None)
+                    candles, exchange_now = fetch_index_candles(saved.get('candles') if saved else None)
                 else:
                     candles, exchange_now = demo_candles()
                 finished = time.monotonic()
@@ -40,13 +40,18 @@ def report(mode, payout):
             except (RuntimeError, ValueError, KeyError, TypeError, IndexError) as e:
                 # Cache failures too, so browser refreshes cannot hammer the provider.
                 previous = saved.get('candles') if saved else None
-                saved = dict(error=str(e), fetched=time.monotonic(), candles=previous)
+                saved = dict(error=str(e), exception=e, fetched=time.monotonic(), candles=previous)
                 CACHE[mode] = saved
         if 'error' in saved:
-            raise RuntimeError(saved['error'])
+            raise saved['exception']
+        # Fetch an independent current index snapshot on every check, even when
+        # the much larger closed-candle history is still cached.
+        quote = fetch_index_quote() if mode == 'live' else None
         clock = saved['clock']+int((time.monotonic()-saved['fetched'])*1000)
-        result = analyze(saved['candles'], clock, payout, mode == 'demo')
-        result['source'] = {'coinbase': 'Coinbase 现货', 'live': '币安现货', 'demo': '合成演示'}[mode]
+        result = analyze(saved['candles'], clock, payout, mode == 'demo',
+                         price_kind='index' if mode == 'live' else 'spot', quote=quote)
+        result['source'] = {'coinbase': 'Coinbase 现货（研究）', 'live': '币安 BTCUSDT 指数', 'demo': '合成演示'}[mode]
+        result['volume_source'] = '币安 BTCUSDT 现货成交量（仅量能指标）' if mode == 'live' else result['source']
         result['pair'] = 'BTC / USD' if mode == 'coinbase' else 'BTC / USDT'
         result['quote'] = 'USD' if mode == 'coinbase' else 'USDT'
         return result

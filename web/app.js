@@ -45,25 +45,27 @@ function render(data) {
   hasResult = true;
   $('empty').hidden = true; $('error').hidden = true; $('results').hidden = false;
   text('source', data.demo ? '演示数据 · 禁止交易' : `${data.source} · 已获取`);
-  text('pair-label', `最近收盘参考价 · ${data.pair}`);
+  text('pair-label', `${data.price_kind === 'index' ? '当前指数快照' : '研究收盘价'} · ${data.pair}`);
   text('action', {WAIT: '等待 · 暂无可用买点', UP: '观察看涨 ↑', DOWN: '观察看跌 ↓'}[data.action]);
   $('action').className = data.action === 'UP' ? 'positive' : data.action === 'DOWN' ? 'negative' : '';
-  text('signal-note', data.demo ? '这是合成行情，用于熟悉界面，任何回测数值均无交易意义。' : `基于 ${data.source} 的已收盘一分钟 K 线，仅研究价格方向，不等于事件合约交易信号。`);
+  text('signal-note', data.demo ? '这是合成行情，用于熟悉界面，任何回测数值均无交易意义。' : data.price_kind === 'index' ? '指标使用已收盘K线；提交后下一秒开仓，再过600秒到期。当前指数快照不是实际开仓价，赔率以订单确认为准。' : '独立现货行情研究，不能验证币安事件合约；不会发送合约观察提醒。');
   list('blockers', data.blockers);
   text('price', price(data.reference_price)); text('signal-time', time(data.signal_time));
-  text('expiry', time(data.estimated_expiry)); text('age', `${data.data_age_seconds} 秒（请求时）`);
+  text('expiry', time(data.estimated_expiry)); text('age', `指标 ${data.data_age_seconds} 秒${data.price_kind === 'index' ? `；指数快照 ${data.quote_age_seconds} 秒` : ''}（请求时）`);
   const m = data.metrics;
   text('score', `当前满足 ${m.score} / 5 项，指标趋势：${m.direction === 'UP' ? '向上' : '向下'}；只有全部通过才进入历史表现检查。`);
   $('metrics').replaceChildren(tile('EMA20', price(m.ema20)), tile('EMA50', price(m.ema50)), tile('RSI14（简单均值）', m.rsi), tile('ATR / 价格', m.atr_pct+'%'), tile('成交量 / 前 20 分钟', m.volume_ratio+' 倍'));
   list('reasons', m.reasons.length ? m.reasons : ['尚无达标指标']);
   const b = data.holdout;
-  $('stats').replaceChildren(tile('已结束的模拟笔数', b.total), tile('历史胜率', b.win_rate === null ? '无样本' : b.win_rate+'%'), tile('95% Wilson 保守下界', b.lower_bound+'%'), tile('按所填赔率计算盈亏', b.profit_units+' 单位', b.profit_units >= 0 ? 'positive' : 'negative'), tile('最大回撤', b.max_drawdown_units+' 单位'), tile('盈亏平衡胜率', data.breakeven_pct+'%'));
-  text('range', `${time(b.from_time)} — ${time(b.to_time)}。胜 ${b.wins} 笔 / 亏 ${b.losses} 笔，其中平价 ${b.ties} 笔保守记亏。`);
-  text('gate', `过滤门槛：后段至少 30 笔，且保守下界 > ${(data.breakeven_pct+2).toFixed(2)}%。这只是审慎过滤，不能证明未来有优势；交易结果相关时，此统计区间也可能偏乐观。`);
-  text('early', `前段描述：${data.early.total} 笔，历史胜率 ${data.early.win_rate === null ? '无样本' : data.early.win_rate+'%'}。规则未根据这些结果调整。`);
+  const d = data.diagnostics;
+  if (d) text('diagnostics', `本次：${d.candles}根K线，${d.evaluated_minutes}个已评估分钟，五项全过${d.qualified_minutes}分钟。逐项未通过次数：${Object.entries(d.failed_rule_counts).map(([k,v])=>`${k}=${v}`).join('；')}。候选分钟会重复且未经统计门槛，不等于提醒次数。${d.validation}。`);
+  $('stats').replaceChildren(tile('已结束的模拟笔数', b.total), tile('可确定胜出比例下界', b.win_rate === null ? '无样本' : b.win_rate+'%'), tile('95% Wilson 保守下界', b.lower_bound+'%'), tile('保守情形净盈亏下界', b.profit_units+' 单位', b.profit_units >= 0 ? 'positive' : 'negative'), tile('保守情形路径回撤', b.max_drawdown_units+' 单位'), tile('盈亏平衡胜率', data.breakeven_pct+'%'));
+  text('range', `${time(b.from_time)} — ${time(b.to_time)}。胜 ${b.wins} 笔 / 亏 ${b.losses} 笔 / 平价退款 ${b.ties} 笔 / 端点不确定 ${b.unresolved || 0} 笔。分钟区间只给保守界限，不是精确胜率。`);
+  text('gate', `过滤门槛：端点不确定按失败计入统计，后段至少30笔，且保守下界 > ${(data.breakeven_pct+2).toFixed(2)}%。这只是审慎过滤，不能证明未来有优势；交易结果相关时，此统计区间也可能偏乐观。`);
+  text('early', `前段描述：${data.early.total} 笔，可确定胜出比例下界 ${data.early.win_rate === null ? '无样本' : data.early.win_rate+'%'}。规则未根据这些结果调整。`);
   $('trades').replaceChildren(...[...b.trades].reverse().map(trade => {
     const tr = document.createElement('tr');
-    for (const value of [time(trade.time), trade.direction === 'UP' ? '看涨' : '看跌', price(trade.entry), price(trade.exit), trade.tie ? '平价（记亏）' : trade.won ? '胜' : '亏']) {
+    for (const value of [time(trade.time), trade.direction === 'UP' ? '看涨' : '看跌', trade.entry_range ? trade.entry_range.map(price).join(' – ') : price(trade.entry), trade.exit_range ? trade.exit_range.map(price).join(' – ') : price(trade.exit), trade.unresolved ? '不确定（门槛按亏）' : trade.tie ? '平价（退款）' : trade.won ? '胜' : '亏']) {
       const td = document.createElement('td'); td.textContent = value; tr.append(td);
     }
     tr.lastChild.className = trade.won ? 'positive' : 'negative'; return tr;
@@ -83,7 +85,7 @@ function render(data) {
     text('action', '等待 · 行情已过期'); $('action').className = '';
     text('source', '行情已过期 · 请刷新');
     text('signal-note', '已停止显示方向，请重新获取分析。');
-  }, Math.max(0, 90000-data.data_age_seconds*1000));
+  }, Math.max(0, Math.min(75000-data.data_age_seconds*1000, data.price_kind === 'index' ? 15000-(data.quote_age_seconds || 0)*1000 : 75000)));
 }
 async function load() {
   if (loading) return;

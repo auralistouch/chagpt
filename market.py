@@ -1,4 +1,4 @@
-"""Independent public spot feeds; never substitute one exchange for another."""
+"""Public index prices and explicit spot volume; never silently substitute feeds."""
 from datetime import datetime, timezone
 from http.client import HTTPException
 import json
@@ -12,6 +12,71 @@ from strategy import Candle, MINUTE, validate
 
 BASE = 'https://api.binance.com'
 COINBASE = 'https://api.exchange.coinbase.com'
+FUTURES = 'https://fapi.binance.com'
+
+
+class MarketError(RuntimeError):
+    def __init__(self, message, code, provider, http_status=None):
+        super().__init__(message)
+        self.diagnostic = dict(code=code, provider=provider, http_status=http_status)
+
+
+def fetch_index_candles(previous=None, count=4320):
+    """Index OHLC joined to explicit spot volume; index field 5 is NOT volume.
+
+    Fail closed on either source, timestamp mismatch, gaps or duplicate rows.
+    Never reuse spot OHLC as index prices.
+    """
+    clock = int(request('/fapi/v1/time', FUTURES, '币安指数')['serverTime'])
+    end = clock//MINUTE*MINUTE
+    if type(count) is not int or not 71 <= count <= 129600:
+        raise ValueError('指数窗口须在71根至90天一分钟K线之间')
+    oldest = end-count*MINUTE
+    existing = {c.time: c for c in (previous or []) if oldest <= c.time < end}
+    incremental = len(existing) >= count-320 and bool(existing) and max(existing) >= end-999*MINUTE
+    begin = max(existing) if incremental else oldest
+    combined = existing if incremental else {}
+    cursor = begin
+    while cursor < end:
+        page_end = min(end, cursor+1000*MINUTE)
+        query = urlencode(dict(pair='BTCUSDT', interval='1m', limit=1000,
+                               startTime=cursor, endTime=page_end-1))
+        rows = request('/fapi/v1/indexPriceKlines?'+query, FUTURES, '币安指数')
+        volume_query = urlencode(dict(symbol='BTCUSDT', interval='1m', limit=1000,
+                                      startTime=cursor, endTime=page_end-1))
+        volumes = request('/api/v3/klines?'+volume_query)
+        expected = set(range(cursor, page_end, MINUTE))
+        def page(items):
+            if not isinstance(items, list): raise RuntimeError('行情响应不是 K 线列表')
+            result = {}
+            for row in items:
+                stamp = int(row[0])
+                if stamp not in expected or stamp in result:
+                    raise RuntimeError('指数/量能行情含重复或越界 K 线')
+                result[stamp] = row
+            if set(result) != expected:
+                raise RuntimeError('指数与现货量能行情缺失或时间未对齐，暂停提示')
+            return result
+        prices, spot = page(rows), page(volumes)
+        for stamp in sorted(expected):
+            row = prices[stamp]
+            combined[stamp] = Candle(stamp, *map(float, row[1:5]), float(spot[stamp][5]))
+        cursor = page_end
+    candles = [combined[t] for t in sorted(combined)]
+    if len(candles) != count: raise RuntimeError('指数连续行情不足请求窗口，暂停提示')
+    validate(candles)
+    return candles, clock
+
+
+def fetch_index_quote():
+    data = request('/fapi/v1/premiumIndex?symbol=BTCUSDT', FUTURES, '币安指数')
+    if not isinstance(data, dict) or data.get('symbol') != 'BTCUSDT':
+        raise RuntimeError('指数快照品种不匹配')
+    price, stamp = float(data['indexPrice']), int(data['time'])
+    if not math.isfinite(price) or price <= 0 or stamp <= 0:
+        raise RuntimeError('指数快照无效')
+    # Deliberately never read markPrice, estimatedSettlePrice or lastPrice.
+    return dict(price=price, time=stamp)
 
 
 def request(path, base=BASE, name='币安'):
@@ -20,16 +85,18 @@ def request(path, base=BASE, name='币安'):
             return json.load(response)
     except HTTPError as e:
         if e.code in (418, 429):
-            raise RuntimeError(f"{name}请求频率受限，请稍后再试") from e
-        raise RuntimeError(f"{name}行情连接失败（HTTP {e.code}）。请检查网络、地区支持及服务状态。") from e
+            raise MarketError(f"{name}请求频率受限，请稍后再试", 'rate_limited', name, e.code) from e
+        raise MarketError(f"{name}行情连接失败（HTTP {e.code}）。请检查网络、地区支持及服务状态。", 'http_error', name, e.code) from e
     except (URLError, TimeoutError, OSError) as e:
         import ssl
         reason = getattr(e, 'reason', e)
         if isinstance(reason, ssl.SSLCertVerificationError):
-            raise RuntimeError(f"{name}证书验证失败。请运行 Python 文件夹中的 Install Certificates.command 后重启程序。") from e
-        raise RuntimeError(f"无法连接{name}行情（{type(reason).__name__}），请检查网络是否允许 {base.split('//')[1]} 的 HTTPS 请求") from e
+            raise MarketError(f"{name}证书验证失败。请运行 Python 文件夹中的 Install Certificates.command 后重启程序。", 'tls_error', name) from e
+        raise MarketError(f"无法连接{name}行情（{type(reason).__name__}），请检查网络是否允许 {base.split('//')[1]} 的 HTTPS 请求", 'network_error', name) from e
     except HTTPException as e:
-        raise RuntimeError(f'{name}行情响应中途断开或不完整，请稍后重试') from e
+        raise MarketError(f'{name}行情响应中途断开或不完整，请稍后重试', 'incomplete_response', name) from e
+    except json.JSONDecodeError as e:
+        raise MarketError(f'{name}行情响应不是有效JSON，暂停提示', 'invalid_json', name) from e
 
 
 def fetch_coinbase(previous=None):

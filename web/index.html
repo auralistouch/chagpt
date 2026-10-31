@@ -5,11 +5,11 @@
   <title>BTC · 十分钟观察台</title><link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <header><div class="logo">₿</div><div><h1>十分钟观察台</h1><p>比特币现货 · 十分钟方向研究 · v1.5</p></div><span id="source" class="badge">尚未连接</span></header>
+  <header><div class="logo">₿</div><div><h1>十分钟观察台</h1><p>BTCUSDT 指数 · 事件合约观察 · v1.6</p></div><span id="source" class="badge">尚未连接</span></header>
   <main>
-    <div class="notice">仅研究<strong>现货价格方向</strong>，不提供事件合约交易。默认使用币安 BTC/USDT 现货行情，不能替代事件合约实际结算价格。切换到 Coinbase 时使用独立的 BTC/USD 行情，两个来源的结果不可混用。历史表现不保证未来收益。</div>
+    <div class="notice">按币安官方规则观察：<strong>提交后下一秒取开仓指数，再过600秒到期；平价退本金</strong>。默认使用BTCUSDT指数，量能单独采用现货成交量。实际赔率以订单确认为准。分钟K线只能给出结算区间，不能还原精确胜率；历史表现不保证未来收益。不自动下单。</div>
     <section class="controls">
-      <label>数据来源<select id="mode"><option value="live" selected>币安 BTC/USDT（须当地支持）</option><option value="coinbase">Coinbase BTC/USD（行情研究）</option><option value="demo">合成演示（不能交易）</option></select></label>
+      <label>数据来源<select id="mode"><option value="live" selected>币安 BTCUSDT 指数（合约观察）</option><option value="coinbase">Coinbase BTC/USD（行情研究）</option><option value="demo">合成演示（不能交易）</option></select></label>
       <label>模拟净收益比例<input id="payout" type="number" min="1" max="200" value="80" step="1"><span>%（不含返还本金）</span></label>
       <button id="refresh">获取分析</button><label class="auto"><input id="auto" type="checkbox"> 每 30 秒刷新</label>
     </section>
@@ -23,11 +23,12 @@
         <button id="phone-test" class="secondary" type="button" disabled>发送手机测试</button>
         <button id="phone-stop" class="secondary" type="button">停用手机监测</button>
       </div>
+      <details><summary>逐次检查与推送记录</summary><p id="phone-counts" class="hint"></p><pre id="phone-events" style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:24rem;overflow:auto"></pre></details>
       <p id="phone-status" class="hint" role="status" aria-live="polite">正在读取本机手机提醒设置…</p>
-      <p class="hint">保存时使用上方选中的真实行情来源和模拟收益比例。手机监测独立于网页；Mac 程序运行、联网且唤醒时，关闭网页后仍会继续检查。演示、等待或过期行情不发送，每十分钟最多尝试一次；开启后请先发送测试。推送可能延迟，通知不是下单指令。停用时点击“停用手机监测”。</p>
+      <p class="hint">保存时使用上方选中的真实行情来源和模拟收益比例。手机监测独立于网页；Mac 程序运行、联网且唤醒时，关闭网页后仍会继续检查。演示、等待或过期行情不发送，至少相隔601秒才尝试下一次；开启后请先发送测试。推送可能延迟，通知不是下单指令。停用时点击“停用手机监测”。</p>
     </section>
     <p id="refresh-status" class="hint" role="status" aria-live="polite">自动刷新已关闭。</p>
-    <p class="hint">80% 只是假设的模拟收益，不是 Coinbase 或币安的产品报价。例如模拟投入 100，方向正确赚 80，错误亏 100；不代表现货买卖收益。</p>
+    <p class="hint">80% 为本次验证假设；币安实际净赔率可能变化，以订单确认为准。例如模拟投入 100，方向正确赚 80，错误亏 100；不代表现货买卖收益。</p>
     <section class="alert-panel" aria-label="观察信号提醒">
       <h3>观察信号提醒</h3>
       <div class="alert-controls">
@@ -38,21 +39,21 @@
         <button id="test-alerts" class="secondary" type="button" disabled>测试提醒</button>
       </div>
       <p id="alert-status" class="hint" role="status" aria-live="polite">正在恢复提醒设置。只在真实行情产生有效观察方向时提醒，等待和演示数据不会触发。</p>
-      <p class="hint">默认启用提醒与自动刷新，刷新网页会恢复上次设置；主动停用也会被记住。浏览器首次通知授权和刷新后的声音解锁可能仍需点击一次。Mac 桌面提醒须保持网页运行；手机监测独立运行。休眠、合盖或断网会影响提醒，每十分钟最多提醒一次。请先测试，并检查专注模式。</p>
+      <p class="hint">默认启用提醒与自动刷新，刷新网页会恢复上次设置；主动停用也会被记住。浏览器首次通知授权和刷新后的声音解锁可能仍需点击一次。Mac 桌面提醒须保持网页运行；手机监测独立运行。休眠、合盖或断网会影响提醒，至少相隔601秒才再次提醒。请先测试，并检查专注模式。</p>
     </section>
     <div id="error" role="alert" hidden></div>
     <div id="empty" class="empty">选择数据来源，点击“获取分析”。首次获取约 3 天行情可能需要一些时间。<br>未连接时不会显示买点；可切换合成演示查看操作界面。</div>
     <div id="results" hidden>
       <section class="grid top">
         <article class="signal card"><div class="eyebrow">当前观察结论</div><h2 id="action">等待</h2><p id="signal-note"></p><ul id="blockers"></ul><p class="hint">观察方向不代表可以盈利，不是实际可成交的买点，也不提供事件合约交易资格。</p></article>
-        <article class="card"><div class="eyebrow" id="pair-label">最近收盘参考价 · BTC / USDT</div><div id="price" class="number">—</div><dl><dt>信号基准时间</dt><dd id="signal-time"></dd><dt>理论十分钟终点</dt><dd id="expiry"></dd><dt>行情延迟</dt><dd id="age"></dd></dl><p class="hint">参考价不是实时可成交价格；时间使用你的浏览器时区。实际下单延迟会改变结果。</p></article>
+        <article class="card"><div class="eyebrow" id="pair-label">最近收盘参考价 · BTC / USDT</div><div id="price" class="number">—</div><dl><dt>信号基准时间</dt><dd id="signal-time"></dd><dt>假设此刻提交的预计到期</dt><dd id="expiry"></dd><dt>行情延迟</dt><dd id="age"></dd></dl><p class="hint">指数快照不是实际开仓价。预计到期基于本次观察时刻；实际提交、开仓和到期以订单为准。时间使用浏览器时区。</p></article>
       </section>
       <section class="card chart"><div class="section-head"><h3>最近三小时走势</h3><span>一分钟收盘价</span></div><svg id="chart" viewBox="0 0 1000 220" role="img" aria-label="最近三小时比特币收盘价格曲线"></svg><div id="chart-range" class="hint"></div></section>
       <section class="grid bottom">
-        <article class="card"><h3>指标检查</h3><p id="score" class="hint"></p><div id="metrics" class="metric-list"></div><ul id="reasons"></ul><p class="hint">满足项数只是规则一致程度，不是上涨、下跌或盈利概率。</p></article>
-        <article class="card"><h3>后段历史验证</h3><p class="hint">时间顺序前 2/3 用于描述，后 1/3 单独验证；固定规则，没有自动调参。后段结果仍可能受市场状态影响。</p><div id="stats" class="stats"></div><p id="range" class="hint"></p><p id="gate" class="hint"></p><p id="early" class="hint"></p></article>
+        <article class="card"><h3>指标检查</h3><p id="score" class="hint"></p><div id="metrics" class="metric-list"></div><ul id="reasons"></ul><p id="diagnostics" class="hint"></p><p class="hint">满足项数只是规则一致程度，不是上涨、下跌或盈利概率。</p></article>
+        <article class="card"><h3>后段保守区间验证</h3><p class="hint">时间顺序前 2/3 用于描述，后 1/3 单独验证；固定规则，没有自动调参。后段结果仍可能受市场状态影响。</p><div id="stats" class="stats"></div><p id="range" class="hint"></p><p id="gate" class="hint"></p><p id="early" class="hint"></p></article>
       </section>
-      <section class="card"><h3>后段最近 30 笔模拟记录</h3><div class="table-wrap"><table><thead><tr><th>信号时间</th><th>方向</th><th>模拟入场</th><th>十分钟终价</th><th>结果</th></tr></thead><tbody id="trades"></tbody></table></div><p class="hint">信号只使用已收盘数据；下一分钟开盘价模拟入场，第十分钟收盘价模拟结束。持有期间不重复开仓；平价保守记亏。按每笔固定投入 1 单位计算，未计费用、延迟、价差及真实结算规则。</p></section>
+      <section class="card"><h3>后段最近 30 笔模拟记录</h3><div class="table-wrap"><table><thead><tr><th>信号时间</th><th>方向</th><th>开仓指数范围</th><th>到期指数范围</th><th>结果</th></tr></thead><tbody id="trades"></tbody></table></div><p class="hint">按下一秒开仓再过600秒到期，使用指数分钟高低范围保守验证；不确定结果在门槛中按失败计，平价退款。区间覆盖任意提交秒位，不把分钟收盘当作精确到期价。按每笔1单位计；不含实际订单延迟和动态赔率。</p></section>
     </div>
     <footer>先模拟观察，再决定是否使用。不要借款交易、不要亏损后翻倍加仓。这里的历史表现不代表未来结果。</footer>
   </main><script src="/alerts.js"></script><script src="/phone.js"></script><script src="/app.js"></script>

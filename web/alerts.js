@@ -132,21 +132,23 @@
     // Include the entire browser request as a conservative allowance for slow
     // delivery; an observation that arrives late must never sound fresh.
     const age = data.data_age_seconds+(data.request_duration_seconds || 0);
-    if (data.demo || !['UP', 'DOWN'].includes(data.action) || !Number.isFinite(age) || age < 0 || age >= 90 || !Number.isFinite(data.signal_time)) {
+    if (data.price_kind !== 'index' || data.demo || !['UP', 'DOWN'].includes(data.action) || !Number.isFinite(age) || age < 0 || age >= 75 || !Number.isFinite(data.signal_time)) {
       pause(); return;
     }
+    const quoteAge = data.quote_age_seconds+(data.request_duration_seconds || 0);
+    if (!Number.isFinite(quoteAge) || quoteAge < 0 || quoteAge >= 15) { pause(); return; }
     const previous = readLast();
     // Suppress repeated refreshes, reloads, setting changes, and overlapping
     // ten-minute observations. Test alerts never consume this cooldown.
-    if (previous && data.signal_time-previous.time < 600000) return;
+    if (previous && data.signal_time-previous.time < 601000) return;
     const direction = data.action === 'UP' ? '看涨' : '看跌';
     const stamp = new Date(data.signal_time).toLocaleString('zh-CN', {hour12: false});
     const sound = tone();
-    const notified = desktop(`BTC 观察到${direction}方向`, `${data.source} · ${data.pair}\n参考价 ${data.reference_price} · 基准时间 ${stamp}\n仅供观察，不是下单指令。`, 'btc-observer-signal', Math.max(0, 90000-age*1000));
+    const notified = desktop(`BTC 观察到${direction}方向`, `${data.source} · ${data.pair}\n指数快照 ${data.reference_price} · 指标时间 ${stamp}\n仅供观察，不是下单指令。`, 'btc-observer-signal', Math.max(0, Math.min(75000-age*1000, 15000-quoteAge*1000)));
     if (sound || notified) {
       lastAlert = {time:data.signal_time};
       try { localStorage.setItem(storageKey, JSON.stringify(lastAlert)); } catch { /* Use in-memory cooldown. */ }
-      status(`已请求提醒：${direction} · ${stamp}。十分钟内不重复提醒；请打开页面核对当前行情。`);
+      status(`已请求提醒：${direction} · ${stamp}。601秒内不重复提醒；请打开页面核对当前行情。`);
     } else {
       status('发现观察方向，但提醒未能发送。请重新启用并测试声音和通知权限。');
     }
