@@ -49,7 +49,7 @@ function render(data) {
   text('action', {WAIT: '等待 · 暂无可用买点', UP: '观察看涨 ↑', DOWN: '观察看跌 ↓'}[data.action]);
   $('action').className = data.action === 'UP' ? 'positive' : data.action === 'DOWN' ? 'negative' : '';
   text('signal-note', data.demo ? '这是合成行情，用于熟悉界面，任何回测数值均无交易意义。' : data.price_kind === 'index' ? '指标使用已收盘K线；提交后下一秒开仓，再过600秒到期。当前指数快照不是实际开仓价，赔率以订单确认为准。' : '独立现货行情研究，不能验证币安事件合约；不会发送合约观察提醒。');
-  list('blockers', data.blockers);
+  list('blockers', [...data.blockers, ...(data.warnings || [])]);
   text('price', price(data.reference_price)); text('signal-time', time(data.signal_time));
   text('expiry', time(data.estimated_expiry)); text('age', `指标 ${data.data_age_seconds} 秒${data.price_kind === 'index' ? `；指数快照 ${data.quote_age_seconds} 秒` : ''}（请求时）`);
   const m = data.metrics;
@@ -61,7 +61,7 @@ function render(data) {
   if (d) text('diagnostics', `本次：${d.candles}根K线，${d.evaluated_minutes}个已评估分钟，五项全过${d.qualified_minutes}分钟。逐项未通过次数：${Object.entries(d.failed_rule_counts).map(([k,v])=>`${k}=${v}`).join('；')}。候选分钟会重复且未经统计门槛，不等于提醒次数。${d.validation}。`);
   $('stats').replaceChildren(tile('已结束的模拟笔数', b.total), tile('可确定胜出比例下界', b.win_rate === null ? '无样本' : b.win_rate+'%'), tile('95% Wilson 保守下界', b.lower_bound+'%'), tile('保守情形净盈亏下界', b.profit_units+' 单位', b.profit_units >= 0 ? 'positive' : 'negative'), tile('保守情形路径回撤', b.max_drawdown_units+' 单位'), tile('盈亏平衡胜率', data.breakeven_pct+'%'));
   text('range', `${time(b.from_time)} — ${time(b.to_time)}。胜 ${b.wins} 笔 / 亏 ${b.losses} 笔 / 平价退款 ${b.ties} 笔 / 端点不确定 ${b.unresolved || 0} 笔。分钟区间只给保守界限，不是精确胜率。`);
-  text('gate', `过滤门槛：端点不确定按失败计入统计，后段至少30笔，且保守下界 > ${(data.breakeven_pct+2).toFixed(2)}%。这只是审慎过滤，不能证明未来有优势；交易结果相关时，此统计区间也可能偏乐观。`);
+  text('gate', (data.policy === 'candidate' ? '当前候选模式：历史统计不拦截提醒，未验证优势。原严格模式的' : '') + `过滤门槛：端点不确定按失败计入统计，后段至少30笔，且保守下界 > ${(data.breakeven_pct+2).toFixed(2)}%。这只是审慎过滤，不能证明未来有优势；交易结果相关时，此统计区间也可能偏乐观。`);
   text('early', `前段描述：${data.early.total} 笔，可确定胜出比例下界 ${data.early.win_rate === null ? '无样本' : data.early.win_rate+'%'}。规则未根据这些结果调整。`);
   $('trades').replaceChildren(...[...b.trades].reverse().map(trade => {
     const tr = document.createElement('tr');
@@ -108,7 +108,7 @@ async function load() {
   try {
     let response;
     try {
-      response = await fetch(`/api/signals?mode=${$('mode').value}&payout=${payout}`, {signal: controller.signal, cache: 'no-store'});
+      response = await fetch(`/api/signals?mode=${$('mode').value}&payout=${payout}&policy=${$('policy').value}`, {signal: controller.signal, cache: 'no-store'});
     } catch (error) {
       if (error.name === 'AbortError') throw error;
       throw new Error('浏览器未能连接本机程序。请保持 start.command 终端打开，并确认 Mac 未进入睡眠；连接恢复后会按设置自动重试。');
@@ -138,6 +138,7 @@ async function load() {
 $('refresh').addEventListener('click', () => load());
 $('mode').addEventListener('change', invalidate);
 $('payout').addEventListener('input', invalidate);
+$('policy').addEventListener('change', invalidate);
 $('auto').addEventListener('change', () => {
   clearTimeout(timer);
   if ($('auto').checked) { failures = 0; load(); }
@@ -150,3 +151,4 @@ window.addEventListener('online', () => {
   if ($('auto').checked && !loading) scheduleRefresh(0);
 });
 window.dispatchEvent(new Event('observer-ready'));
+

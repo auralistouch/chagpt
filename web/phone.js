@@ -16,12 +16,15 @@
   function show(data, updateControls=false) {
     lastState=data;
     const source = data.mode === 'coinbase' ? 'Coinbase BTC/USD（不发合约提醒）' : '币安 BTCUSDT 指数';
-    status(data.available === false ? data.message : `${data.configured ? '推送地址已保存在本机' : '尚未保存推送地址'}；${data.enabled ? '手机监测已启用' : '手机监测未启用'}。${data.message}。监测配置：${source}，模拟净收益 ${Math.round((data.payout || .8)*100)}%。`);
+    status(data.available === false ? data.message : `${data.configured ? '推送地址已保存在本机' : '尚未保存推送地址'}；${data.enabled ? '手机监测已启用' : '手机监测未启用'}。${data.message}。监测配置：${data.policy === 'candidate' ? '候选提醒（未验证优势）' : '严格统计过滤'}，${source}，模拟净收益 ${Math.round((data.payout || .8)*100)}%。`);
     if (data.last_check) status(el('phone-status').textContent+` 上次检查：${new Date(data.last_check).toLocaleString('zh-CN',{hour12:false})}。`);
     if (el('phone-counts')) el('phone-counts').textContent = `本次运行已检查 ${data.check_count || 0} 次；拦截统计：${JSON.stringify(data.block_counts || {})}；上次推送结果：${data.last_push_result?.result || '尚未尝试'}（accepted仅指服务接受，unknown指未确认）。`;
     if (el('phone-counts')) el('phone-counts').textContent += ` 每日UTC实测（checks=检查，candidate_minutes=五项全过分钟，signal_attempts=正式尝试，accepted=服务接受）：${JSON.stringify(data.daily_utc || {})}。候选不是买卖信号；日志累计不代表已验证胜率。`;
     if (el('phone-events')) el('phone-events').textContent = [...(data.recent_events || [])].reverse().map(row => JSON.stringify(row)).join('\n');
-    if (updateControls) el('phone-enabled').checked = data.configured ? !!data.enabled : true;
+    if (updateControls) {
+      el('phone-enabled').checked = data.configured ? !!data.enabled : true;
+      el('policy').value = data.policy || 'strict';
+    }
     el('phone-test').disabled = !data.configured;
   }
   async function poll(initial=false) {
@@ -39,11 +42,11 @@
       } else if (kind === 'stop') {
         show(await request('/api/phone/stop', {}),true);
       } else if (kind === 'enable') {
-        show(await request('/api/phone', {key:'', enabled:true, mode:lastState.mode, payout:lastState.payout}),true);
+        show(await request('/api/phone', {key:'', enabled:true, mode:lastState.mode, payout:lastState.payout, policy:lastState.policy || 'strict'}),true);
       } else {
         const result = await request('/api/phone', {
           key:el('phone-key').value, enabled:el('phone-enabled').checked,
-          mode:el('mode').value, payout:Number(el('payout').value)/100
+          mode:el('mode').value, payout:Number(el('payout').value)/100, policy:el('policy').value
         });
         el('phone-key').value='';
         show(result,true);
@@ -66,3 +69,4 @@
   });
   poll(true);
 })();
+

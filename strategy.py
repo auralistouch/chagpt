@@ -144,7 +144,8 @@ def backtest(candles, features, start, stop, payout):
                 trades=trades[-30:])
 
 
-def analyze(candles, now_ms, payout=0.8, demo=False, price_kind='spot', quote=None):
+def analyze(candles, now_ms, payout=0.8, demo=False, price_kind='spot', quote=None, policy='strict'):
+    if policy not in ('strict', 'candidate'): raise ValueError('提醒模式无效')
     validate(candles)
     if not math.isfinite(payout) or not 0.01 <= payout <= 2:
         raise ValueError("净收益比例必须在 1% 至 200% 之间")
@@ -169,15 +170,17 @@ def analyze(candles, now_ms, payout=0.8, demo=False, price_kind='spot', quote=No
         block('indicators', '当前未同时满足全部五项指标条件')
         blockers.extend(c['label']+'：未通过' for c in current.get('checks', []) if not c['passed'])
         codes.extend('rule_'+c for c in current.get('failed_rules', []))
-    if holdout['total'] < 30: block('sample_size', f"后段样本 {holdout['total']}/30，暂不能评估可靠性")
-    if not eligible and holdout['total'] >= 30: block('performance', '官方结算规则保守情形的 Wilson 下界未超过盈亏平衡点再加2个百分点')
+    if policy == 'strict' and holdout['total'] < 30: block('sample_size', f"后段样本 {holdout['total']}/30，暂不能评估可靠性")
+    if policy == 'strict' and not eligible and holdout['total'] >= 30: block('performance', '官方结算规则保守情形的 Wilson 下界未超过盈亏平衡点再加2个百分点')
     if not 0 <= age < FRESH_MS: block('stale_candles', '已收盘指标行情过期，暂停提示')
     quote_age = now_ms-quote['time'] if quote else None
     if price_kind == 'index' and (quote_age is None or not 0 <= quote_age < 15_000):
         block('stale_index_quote', '当前指数快照缺失或超过15秒，暂停提示')
     counts = {code: sum(code in f.get('failed_rules', []) for f in features[WARMUP:]) for code in RULES}
     action = current['direction'] if not codes else 'WAIT'
-    return dict(action=action, demo=demo, signal_time=candles[-1].time+MINUTE,
+    return dict(policy=policy, advantage_verified=False,
+                warnings=['候选提醒仅要求五项指标全过，未通过历史统计门槛；不代表胜率提高'] if policy == 'candidate' else [],
+                action=action, demo=demo, signal_time=candles[-1].time+MINUTE,
                 observation_time=now_ms, reference_price=quote['price'] if quote else candles[-1].close,
                 price_time=quote['time'] if quote else candles[-1].time+MINUTE,
                 estimated_open_time=(now_ms//1000+1)*1000,

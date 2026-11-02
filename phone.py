@@ -59,7 +59,7 @@ class PhoneMonitor:
         self.stop_event = threading.Event()
         self.thread = None
         self.revision = 0
-        self.state = dict(key='', enabled=False, mode='live', payout=.8, last_signal_time=0)
+        self.state = dict(key='', enabled=False, mode='live', payout=.8, policy='strict', last_signal_time=0)
         self.message = '手机提醒尚未配置'
         self.last_check = None
         self.last_push = None
@@ -76,6 +76,7 @@ class PhoneMonitor:
                     raise ValueError()
                 if not math.isfinite(saved['payout']) or not .01 <= saved['payout'] <= 2:
                     raise ValueError()
+                if saved.get('policy', 'strict') not in ('strict', 'candidate'): raise ValueError()
                 last = saved.get('last_signal_time', 0)
                 if not isinstance(last, (int, float)) or not math.isfinite(last) or last < 0:
                     raise ValueError()
@@ -100,7 +101,7 @@ class PhoneMonitor:
     def status(self):
         with self.lock:
             return dict(configured=bool(self.state['key']), enabled=self.state['enabled'],
-                        mode=self.state['mode'], payout=self.state['payout'],
+                        mode=self.state['mode'], payout=self.state['payout'], policy=self.state['policy'],
                         message=self.message, last_check=self.last_check, last_push=self.last_push,
                         check_count=self.check_count, block_counts=dict(self.block_counts),
                         last_diagnostics=self.last_diagnostics, last_push_result=self.last_push_result,
@@ -120,7 +121,9 @@ class PhoneMonitor:
         raw = values.get('key', '')
         if not isinstance(raw, str): raise ValueError('设备密钥格式不正确')
         with self.lock:
-            candidate = {**self.state, 'enabled': enabled, 'mode': mode, 'payout': payout}
+            policy = values.get('policy', self.state['policy'])
+            if policy not in ('strict', 'candidate'): raise ValueError('提醒模式无效')
+            candidate = {**self.state, 'enabled': enabled, 'mode': mode, 'payout': payout, 'policy': policy}
             if raw.strip(): candidate['key'] = device_key(raw)
             if enabled and not candidate['key']: raise ValueError('请先在本机网页填写 Bark 推送地址')
             self._save(candidate)  # Preserve old settings if saving fails.
@@ -180,7 +183,8 @@ class PhoneMonitor:
             self.check_count += 1
         try:
             self._record('check_started', mode=settings['mode'], payout=settings['payout'], check_number=self.check_count)
-            data = self.reporter(settings['mode'], settings['payout'])
+            data = (self.reporter(settings['mode'], settings['payout'], settings['policy'])
+                    if settings['policy'] != 'strict' else self.reporter(settings['mode'], settings['payout']))
             report_finished = time.monotonic()
             stamp = data.get('signal_time')
             age = data.get('data_age_seconds')
@@ -196,7 +200,7 @@ class PhoneMonitor:
                 self.last_diagnostics = {k: data.get(k) for k in (
                     'source', 'volume_source', 'action', 'signal_time', 'observation_time',
                     'data_age_seconds', 'quote_age_seconds', 'price_kind', 'metrics', 'diagnostics',
-                    'blocker_codes', 'blockers', 'payout', 'breakeven_pct')}
+                    'blocker_codes', 'blockers', 'payout', 'breakeven_pct', 'policy', 'warnings')}
                 self._record('check_result', duration_ms=self.last_check-check_started,
                              **self.last_diagnostics, holdout={k: data.get('holdout', {}).get(k) for k in (
                                  'total', 'wins', 'losses', 'unresolved', 'lower_bound', 'profit_units', 'exact', 'by_direction')})
@@ -222,7 +226,8 @@ class PhoneMonitor:
                 self.state = candidate
                 direction = '看涨' if data['action'] == 'UP' else '看跌'
                 baseline = datetime.fromtimestamp(stamp/1000).astimezone().isoformat(timespec='seconds')
-                body = f"{data.get('source', '')} · {data.get('pair', '')}\n指数快照 {data.get('reference_price')}\n指标基准 {baseline}\n官方规则：提交后下一秒取开仓指数，再过600秒结算；平价退本金。验证假设赢+{settings['payout']*100:g}%/输-100%，实际赔率以确认订单为准。此快照不是实际开仓价；仅供观察，不是下单指令。"
+                risk_note = '候选提醒：未通过历史统计门槛，尚未验证优势。' if settings['policy'] == 'candidate' else '严格统计过滤提醒，仍不保证结果。'
+                body = risk_note + '\n' + f"{data.get('source', '')} · {data.get('pair', '')}\n指数快照 {data.get('reference_price')}\n指标基准 {baseline}\n官方规则：提交后下一秒取开仓指数，再过600秒结算；平价退本金。验证假设赢+{settings['payout']*100:g}%/输-100%，实际赔率以确认订单为准。此快照不是实际开仓价；仅供观察，不是下单指令。"
             # Network I/O must not block saving a stop request or reading status.
             with self.lock:
                 if revision != self.revision or self.stop_event.is_set(): return
@@ -232,7 +237,7 @@ class PhoneMonitor:
                     return
             phase = 'push'
             self._record('push_attempt', kind='signal', signal_time=stamp)
-            self.sender(settings['key'], f'BTC 观察到{direction}方向', body)
+            self.sender(settings['key'], f"BTC {'候选' if settings['policy'] == 'candidate' else '严格'}方向 · {direction}", body)
             self._push_result('accepted', 'signal', stamp)
             with self.lock:
                 if revision != self.revision: return

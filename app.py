@@ -19,7 +19,7 @@ CACHE = {}
 LOCK = threading.Lock()
 
 
-def report(mode, payout):
+def report(mode, payout, policy='strict'):
     with LOCK:
         now = time.monotonic()
         saved = CACHE.get(mode)
@@ -49,7 +49,7 @@ def report(mode, payout):
         quote = fetch_index_quote() if mode == 'live' else None
         clock = saved['clock']+int((time.monotonic()-saved['fetched'])*1000)
         result = analyze(saved['candles'], clock, payout, mode == 'demo',
-                         price_kind='index' if mode == 'live' else 'spot', quote=quote)
+                         price_kind='index' if mode == 'live' else 'spot', quote=quote, policy=policy)
         result['source'] = {'coinbase': 'Coinbase 现货（研究）', 'live': '币安 BTCUSDT 指数', 'demo': '合成演示'}[mode]
         result['volume_source'] = '币安 BTCUSDT 现货成交量（仅量能指标）' if mode == 'live' else result['source']
         result['pair'] = 'BTC / USD' if mode == 'coinbase' else 'BTC / USDT'
@@ -85,7 +85,9 @@ class Handler(BaseHTTPRequestHandler):
                 mode = query.get('mode', ['live'])[0]
                 if mode not in ('coinbase', 'live', 'demo') or not math.isfinite(payout) or not 0.01 <= payout <= 2:
                     raise ValueError('模式或净收益比例无效')
-                result = report(mode, payout)
+                policy = query.get('policy', ['strict'])[0]
+                if policy not in ('strict', 'candidate'): raise ValueError('提醒模式无效')
+                result = report(mode, payout) if policy == 'strict' else report(mode, payout, policy)
                 return self.send(200, json.dumps(result, ensure_ascii=False, allow_nan=False).encode())
             except ValueError as e:
                 return self.send(400, json.dumps({'error': str(e)}, ensure_ascii=False).encode())
@@ -151,3 +153,4 @@ if __name__ == '__main__':
     finally:
         server.phone_monitor.stop()
         server.server_close()
+
