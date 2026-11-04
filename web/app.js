@@ -1,6 +1,10 @@
 const $ = id => document.getElementById(id);
-const time = value => new Date(value).toLocaleString('zh-CN', {hour12: false});
+const CURRENT_POLICY = 'latest_v4';
+const CURRENT_VERSION = 'reversion_v4.0';
+const STRATEGY_NAME = '均值偏离后的确认反转';
+const time = value => Number.isFinite(value) ? new Date(value).toLocaleString('zh-CN', {hour12: false}) : '无数据';
 const price = value => Number(value).toLocaleString('zh-CN', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+const percent = value => Number.isFinite(value) ? `${value}%` : '无样本';
 let loading = false;
 let timer;
 let expiryTimer;
@@ -42,33 +46,42 @@ function scheduleRefresh(delay) {
   timer = setTimeout(() => load(), delay);
 }
 function render(data) {
+  const validation = data.research_validation;
+  const validated = validation?.passed === true;
+  const action = validated ? data.action : 'WAIT';
   hasResult = true;
   $('empty').hidden = true; $('error').hidden = true; $('results').hidden = false;
   text('source', data.demo ? '演示数据 · 禁止交易' : `${data.source} · 已获取`);
   text('pair-label', `${data.price_kind === 'index' ? '当前指数快照' : '研究收盘价'} · ${data.pair}`);
-  text('action', {WAIT: '等待 · 暂无可用买点', UP: '看涨信号 ↑', DOWN: '看跌信号 ↓'}[data.action]);
-  $('action').className = data.action === 'UP' ? 'positive' : data.action === 'DOWN' ? 'negative' : '';
-  text('signal-note', data.demo ? '这是合成行情，用于熟悉界面，任何回测数值均无交易意义。' : data.price_kind === 'index' ? '指标使用已收盘K线；提交后下一秒开仓，再过600秒到期。当前指数快照不是实际开仓价，赔率以订单确认为准。' : '独立现货行情研究，不能验证币安事件合约；不会发送合约观察提醒。');
-  list('blockers', [...data.blockers, ...(data.warnings || [])]);
+  text('action', {WAIT: '等待 · 暂无可用买点', UP: '看涨信号 ↑', DOWN: '看跌信号 ↓'}[action] || '等待');
+  $('action').className = action === 'UP' ? 'positive' : action === 'DOWN' ? 'negative' : '';
+  const setup = data.setup ? ` · ${data.setup}` : '';
+  const validity = Number.isFinite(data.valid_until) ? `参考有效至 ${time(data.valid_until)}。` : '';
+  const validationReason = validation?.reason || '暂无验收数据，保持等待。';
+  const note = data.demo ? '这是合成行情，用于熟悉界面，研究数值均无交易意义。' : data.price_kind === 'index' ? `${STRATEGY_NAME}${setup}。${validity}指标使用已收盘K线；当前指数快照不是实际开仓价，实际赔率和结算以订单为准。` : '独立现货行情研究，不能验证币安事件合约；不会发送合约观察提醒。';
+  text('signal-note', `${note}${validated ? '' : ` 研究验收未通过：${validationReason}`}`);
+  list('blockers', [...new Set([...(data.blockers || []), ...(data.warnings || []), ...(validated ? [] : [validationReason])])]);
+  text('validation-status', validated ? `研究验收已通过：${validationReason}` : `等待 · ${validationReason}`);
+  $('validation-status').className = validated ? 'positive' : '';
+  text('validation-details', validation ? `验收目标 ${percent(validation.target_pct)}；最低胜负样本 ${validation.min_samples}；已完成 ${validation.total}（胜 ${validation.wins} / 亏 ${validation.losses} / 平 ${validation.ties}）。研究命中率 ${percent(validation.observed_pct)}；统计下界 ${percent(validation.lower_pct)}。验证起点：${time(validation.validation_start)}。研究结果不代表你的实单胜率。` : '尚无当前策略的验收数据，不发送方向提醒。');
   text('price', price(data.reference_price)); text('signal-time', time(data.signal_time));
   text('expiry', time(data.estimated_expiry)); text('age', `指标 ${data.data_age_seconds} 秒${data.price_kind === 'index' ? `；指数快照 ${data.quote_age_seconds} 秒` : ''}（请求时）`);
-  const m = data.metrics;
-  const isV2 = ['trend_v2', 'pullback_v3'].includes(data.policy);
-  if (isV2) text('signal-note', `${data.strategy_name} · ${data.setup}。参考有效至 ${time(data.valid_until)}；指数偏离信号价超过0.5 ATR则取消。信号不是实际开仓价，未证明盈利优势。`);
-  text('score', isV2 ? `当前触发检查 ${m.score}/${m.checks.length}；${m.direction === 'UP' ? '向上' : '向下'}趋势，${m.setup}。检查项不是胜率。` : `当前满足 ${m.score} / 5 项，指标趋势：${m.direction === 'UP' ? '向上' : '向下'}。`);
-  if (isV2) $('metrics').replaceChildren(tile('1分钟EMA9', price(m.ema9)), tile('1分钟EMA21', price(m.ema21)), tile('5分钟EMA9 / EMA21', `${price(m.ema5_fast)} / ${price(m.ema5_slow)}`), tile('10分钟方向效率', m.efficiency), tile('ATR / 价格', m.atr_pct+'%'));
-  else $('metrics').replaceChildren(tile('EMA20', price(m.ema20)), tile('EMA50', price(m.ema50)), tile('RSI14（简单均值）', m.rsi), tile('ATR / 价格', m.atr_pct+'%'), tile('成交量 / 前 20 分钟', m.volume_ratio+' 倍'));
-  list('reasons', m.reasons.length ? m.reasons : ['尚无达标指标']);
+  const m = data.metrics || {};
+  const checks = Array.isArray(m.checks) ? m.checks : [];
+  text('score', `当前触发检查 ${m.score ?? 0} / ${checks.length}。检查项只是规则条件，不是胜率。`);
+  const metrics = Array.isArray(data.display_metrics) ? data.display_metrics : [];
+  $('metrics').replaceChildren(...metrics.map(metric => tile(String(metric.label ?? ''), String(metric.value ?? '—'))));
+  list('reasons', m.reasons?.length ? m.reasons : ['尚无达标指标']);
   const d = data.diagnostics;
-  if (d) text('diagnostics', `本次：${d.candles}根K线，策略满足${d.qualified_minutes}分钟。逐项未通过次数：${Object.entries(d.failed_rule_counts).map(([k,v])=>`${k}=${v}`).join('；')}。触发分钟不等于推送次数。`);
+  text('diagnostics', d ? `本次：${d.candles}根K线，策略满足${d.qualified_minutes}分钟。逐项未通过次数：${Object.entries(d.failed_rule_counts || {}).map(([k,v])=>`${k}=${v}`).join('；')}。触发分钟不等于推送次数。` : '');
   const b = data.price_kind === 'index' && !data.demo ? data.reference_study?.holdout : null;
   if (b) {
     $('stats').replaceChildren(tile('已完成研究样本', b.total), tile('研究方向命中率（剔除平价）', b.win_rate_pct === null ? '无样本' : b.win_rate_pct+'%'), tile('平价', b.ties), tile('未验证（不计胜负）', b.unverified), tile('假设净盈亏', b.profit_units+' 单位'));
     text('range', `${time(b.from_time)} — ${time(b.to_time)}。研究胜 ${b.wins} / 亏 ${b.losses} / 平 ${b.ties}。不是你的实际订单胜率。`);
     text('gate', '单点研究仅用于评估固定时程，不保证未来收益，也不会作为已验证胜率写入通知。');
     const early = data.reference_study.early;
-    text('early', `前段研究样本 ${early.total}；后段按时间独立保留，不据此自动选参。`);
-    const rows = [...b.trades, ...(b.unverified_trades || [])].sort((a,b)=>b.signal_time-a.signal_time).slice(0,30);
+    text('early', early ? `前段研究样本 ${early.total}；两段都只是历史研究，不能代替冻结规则后的独立验收。仅展示当前策略，表内为最近30笔记录。` : '仅展示当前策略，表内为最近30笔记录。');
+    const rows = [...(b.trades || []), ...(b.unverified_trades || [])].sort((a,b)=>b.signal_time-a.signal_time).slice(0,30);
     $('trades').replaceChildren(...rows.map(trade => {
       const tr = document.createElement('tr');
       for (const value of [time(trade.signal_time), trade.direction === 'UP' ? '看涨' : '看跌',time(trade.entry_time),trade.entry ?? '无端点数据',time(trade.expiry),trade.exit ?? '无端点数据',{WIN:'研究胜',LOSS:'研究亏',TIE:'平价',UNVERIFIED:'未验证'}[trade.outcome]]) {
@@ -78,7 +91,7 @@ function render(data) {
     }));
   } else {
     $('stats').replaceChildren();$('trades').replaceChildren();
-    text('range','尚无本策略的指数单点研究数据。旧版分钟范围不再展示为胜率。');
+    text('range','尚无当前策略的指数单点研究数据。');
     text('gate','实际合约胜率须使用对应订单开仓和到期单点；缺失时显示无数据。');text('early','');
   }
   const values = data.chart.map(c => c.price);
@@ -118,7 +131,7 @@ async function load() {
   try {
     let response;
     try {
-      response = await fetch(`/api/signals?mode=${$('mode').value}&payout=${payout}&policy=${$('policy').value}`, {signal: controller.signal, cache: 'no-store'});
+      response = await fetch(`/api/signals?mode=${$('mode').value}&payout=${payout}&policy=${CURRENT_POLICY}`, {signal: controller.signal, cache: 'no-store'});
     } catch (error) {
       if (error.name === 'AbortError') throw error;
       throw new Error('浏览器未能连接本机程序。请保持 start.command 终端打开，并确认 Mac 未进入睡眠；连接恢复后会按设置自动重试。');
@@ -128,6 +141,7 @@ async function load() {
     catch { throw new Error('本机程序返回了不完整的响应，请查看 start.command 终端中的错误提示。'); }
     if (ticket !== generation) return;
     if (!response.ok) throw new Error(data.error || '行情获取失败');
+    if (data.policy !== CURRENT_POLICY || data.strategy_version !== CURRENT_VERSION) throw new Error('当前服务未返回最新版策略，请重新启动本机程序。');
     render(data);
     window.signalAlerts?.maybeNotify({...data, request_duration_seconds: Math.max(0, performance.now()-requestStarted)/1000});
     failures = 0;
@@ -148,7 +162,6 @@ async function load() {
 $('refresh').addEventListener('click', () => load());
 $('mode').addEventListener('change', invalidate);
 $('payout').addEventListener('input', invalidate);
-$('policy').addEventListener('change', invalidate);
 $('auto').addEventListener('change', () => {
   clearTimeout(timer);
   if ($('auto').checked) { failures = 0; load(); }

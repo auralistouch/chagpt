@@ -5,14 +5,14 @@
   <title>BTC · 十分钟观察台</title><link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <header><div class="logo">₿</div><div><h1>十分钟观察台</h1><p>BTCUSDT 指数 · 事件合约观察 · v3.1</p></div><span id="source" class="badge">尚未连接</span></header>
+  <header><div class="logo">₿</div><div><h1>十分钟观察台</h1><p>BTCUSDT 指数 · 均值偏离后的确认反转 · reversion_v4.0</p></div><span id="source" class="badge">尚未连接</span></header>
   <main>
     <div class="notice">按币安官方规则观察：<strong>提交后下一秒取开仓指数，再过600秒到期；平价退本金</strong>。默认使用BTCUSDT指数，新策略只使用指数行情，不依赖现货成交量。实际赔率以订单确认为准。实际订单按单点指数结算；历史一分钟K线不能重建任意秒位的实单价格；研究命中率不等于实际胜率；历史表现不保证未来收益。不自动下单。</div>
-    <p class="hint">v3.0修正：使用顺向效率、真实逆向回踩和收回确认；一次回踩只触发一次，取消追突破。下方真实订单统计仅按导入单点计算；分钟研究不等于实单，缺失端点不按亏损。保存手机设置后使用所选策略。</p>
+    <p class="hint">当前策略：均值偏离后的确认反转。65% 是研究验收目标，不是已达到或保证的实单胜率；未通过验收时保持等待，不发送方向提醒。下方订单统计按导入单点计算；分钟研究不等于实单，缺失端点不按亏损。</p>
     <section class="controls">
       <label>数据来源<select id="mode"><option value="live" selected>币安 BTCUSDT 指数（合约观察）</option><option value="coinbase">Coinbase BTC/USD（行情研究）</option><option value="demo">合成演示（不能交易）</option></select></label>
       <label>模拟净收益比例<input id="payout" type="number" min="1" max="200" value="80" step="1"><span>%（不含返还本金）</span></label>
-      <label>提醒模式<select id="policy"><option value="pullback_v3" selected>新版：顺向趋势＋回踩收回确认</option><option value="trend_v2">旧v2：趋势＋回踩/突破</option><option value="strict">严格统计过滤（原模式）</option><option value="candidate">候选方向提醒（五项全过，未验证优势）</option></select></label>
+      <input id="policy" type="hidden" value="latest_v4">
       <button id="refresh">获取分析</button><label class="auto"><input id="auto" type="checkbox"> 每 30 秒刷新</label>
     </section>
     <section class="alert-panel" aria-label="iPhone Bark 提醒">
@@ -27,7 +27,7 @@
       </div>
       <details><summary>逐次检查与推送记录</summary><p id="phone-counts" class="hint"></p><pre id="phone-events" style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:24rem;overflow:auto"></pre></details>
       <p id="phone-status" class="hint" role="status" aria-live="polite">正在读取本机手机提醒设置…</p>
-      <p class="hint">保存时使用上方选中的真实行情来源和模拟收益比例。手机监测独立于网页；Mac 程序运行、联网且唤醒时，关闭网页后仍会继续检查。演示、等待或过期行情不发送，至少相隔601秒才尝试下一次；开启后请先发送测试。推送可能延迟，通知不是下单指令。停用时点击“停用手机监测”。</p>
+      <p class="hint">手机监测固定使用当前策略，以及上方选中的真实行情来源和模拟收益比例。Mac 程序运行、联网且唤醒时，关闭网页后仍会继续检查。未通过研究验收、演示、等待或过期行情不发送，至少相隔601秒才尝试下一次；开启后请先发送测试。推送可能延迟，通知不是下单指令。停用时点击“停用手机监测”。</p>
     </section>
     <p id="refresh-status" class="hint" role="status" aria-live="polite">自动刷新已关闭。</p>
     <p class="hint">80% 为本次验证假设；币安实际净赔率可能变化，以订单确认为准。例如模拟投入 100，方向正确赚 80，错误亏 100；不代表现货买卖收益。</p>
@@ -40,7 +40,7 @@
         <button id="unlock-alerts" class="secondary" type="button" hidden>授权通知 / 启用声音</button>
         <button id="test-alerts" class="secondary" type="button" disabled>测试提醒</button>
       </div>
-      <p id="alert-status" class="hint" role="status" aria-live="polite">正在恢复提醒设置。只在真实行情产生有效观察方向时提醒，等待和演示数据不会触发。</p>
+      <p id="alert-status" class="hint" role="status" aria-live="polite">正在恢复提醒设置。只在当前策略通过研究验收、真实行情产生有效方向时提醒。</p>
       <p class="hint">默认启用提醒与自动刷新，刷新网页会恢复上次设置；主动停用也会被记住。浏览器首次通知授权和刷新后的声音解锁可能仍需点击一次。Mac 桌面提醒须保持网页运行；手机监测独立运行。休眠、合盖或断网会影响提醒，至少相隔601秒才再次提醒。请先测试，并检查专注模式。</p>
     </section>
     <div id="error" role="alert" hidden></div>
@@ -51,10 +51,11 @@
         <article class="signal card"><div class="eyebrow">当前观察结论</div><h2 id="action">等待</h2><p id="signal-note"></p><ul id="blockers"></ul><p class="hint">观察方向不代表可以盈利，不是实际可成交的买点，也不提供事件合约交易资格。</p></article>
         <article class="card"><div class="eyebrow" id="pair-label">最近收盘参考价 · BTC / USDT</div><div id="price" class="number">—</div><dl><dt>信号基准时间</dt><dd id="signal-time"></dd><dt>假设此刻提交的预计到期</dt><dd id="expiry"></dd><dt>行情延迟</dt><dd id="age"></dd></dl><p class="hint">指数快照不是实际开仓价。预计到期基于本次观察时刻；实际提交、开仓和到期以订单为准。时间使用浏览器时区。</p></article>
       </section>
+      <section class="card" aria-label="当前策略研究验收"><h3>研究验收目标：65%</h3><p class="hint">65% 是待验证目标，不是已保证胜率。验收使用当前策略的分钟单点研究，不能代替真实订单验证。</p><p id="validation-status" role="status" aria-live="polite">等待研究验收数据。</p><p id="validation-details" class="hint"></p></section>
       <section class="card chart"><div class="section-head"><h3>最近三小时走势</h3><span>一分钟收盘价</span></div><svg id="chart" viewBox="0 0 1000 220" role="img" aria-label="最近三小时比特币收盘价格曲线"></svg><div id="chart-range" class="hint"></div></section>
       <section class="grid bottom">
         <article class="card"><h3>指标检查</h3><p id="score" class="hint"></p><div id="metrics" class="metric-list"></div><ul id="reasons"></ul><p id="diagnostics" class="hint"></p><p class="hint">满足项数只是规则一致程度，不是上涨、下跌或盈利概率。</p></article>
-        <article class="card"><h3>分钟开盘点研究 · 非真实订单</h3><p class="hint">信号收盘后固定延后1分钟取指数分钟开盘点，再过10分钟取另一个开盘点。这里只研究固定时程，不重建你实际下一秒开仓的订单。</p><div id="stats" class="stats"></div><p id="range" class="hint"></p><p id="gate" class="hint"></p><p id="early" class="hint"></p></article>
+        <article class="card"><h3>当前策略分钟开盘点研究 · 非真实订单</h3><p class="hint">信号收盘后固定延后1分钟取指数分钟开盘点，再过10分钟取另一个开盘点。这里只研究固定时程，不重建你实际下一秒开仓的订单。</p><div id="stats" class="stats"></div><p id="range" class="hint"></p><p id="gate" class="hint"></p><p id="early" class="hint"></p></article>
       </section>
       <section class="card"><details><summary>展开分钟单点研究记录（非真实订单）</summary><div class="table-wrap"><table><thead><tr><th>信号时间</th><th>方向</th><th>参考入场时间</th><th>参考指数</th><th>参考到期时间</th><th>参考指数</th><th>研究结果</th></tr></thead><tbody id="trades"></tbody></table></div><p class="hint">两个值来自各自分钟K线open，不是任意秒位的订单开仓和到期价。缺失或跨分段端点保留为未验证，不计亏。真实订单只能用对应订单单点记录核算。</p></details></section>
     </div>

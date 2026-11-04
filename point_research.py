@@ -10,7 +10,7 @@ from decimal import Decimal, InvalidOperation
 from strategy import MINUTE, WARMUP, NOTIFY_COOLDOWN_MS, validate, wilson_lower
 
 
-def point_backtest(candles, features, start=WARMUP, stop=None, payout=.8):
+def point_backtest(candles, features, start=WARMUP, stop=None, payout=.8, keep_all=False):
     """Return single-point benchmark outcomes; censored records stay unverified.
 
     Features must have been built causally from completed candles. The caller
@@ -95,5 +95,6 @@ def point_backtest(candles, features, start=WARMUP, stop=None, payout=.8):
                 profit_units=float(equity), max_drawdown_units=float(drawdown),
                 payout_assumption=float(premium),
                 missing_endpoints=missing_endpoints, cross_boundary=cross_boundary,
-                unverified=len(unverified), trades=complete[-30:], unverified_trades=unverified[-30:],
+                unverified=len(unverified), trades=complete if keep_all else complete[-30:],
+                unverified_trades=unverified if keep_all else unverified[-30:],
                 note='固定延后一分的指数分钟开盘点研究；非真实订单，非任意秒位下一秒开仓回放。命中率仅为研究指标。平价净收益0；跨分段或缺失端点不计胜负、也不按亏。未重演实时过滤、通知及人工延迟。')

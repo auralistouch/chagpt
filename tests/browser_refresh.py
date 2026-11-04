@@ -28,7 +28,7 @@ class RefreshBrowserTests(unittest.TestCase):
         data, now = demo_candles()
         cls.fixture = analyze(data, now, demo=False)
         # Force an observation direction to check that disconnects remove it.
-        cls.fixture.update(action='UP',price_kind='index',quote_age_seconds=0,source='币安 BTCUSDT 指数',pair='BTC / USDT',quote='USDT',data_age_seconds=0)
+        cls.fixture.update(policy='latest_v4',strategy_version='reversion_v4.0',research_validation=dict(passed=True,target_pct=65,min_samples=100,total=100,wins=85,losses=15,ties=0,observed_pct=85,lower_pct=76,reason='模拟已通过，仅用于通知逻辑测试',validation_start=0),display_metrics=[],action='UP',price_kind='index',quote_age_seconds=0,source='币安 BTCUSDT 指数',pair='BTC / USDT',quote='USDT',data_age_seconds=0)
 
     @classmethod
     def tearDownClass(cls):

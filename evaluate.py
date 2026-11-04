@@ -1,4 +1,4 @@
-"""Read-only v3 evaluation: minute-open reference points, never actual orders."""
+"""Read-only current-strategy evaluation: minute-open reference points, never actual orders."""
 import argparse
 import csv
 from datetime import datetime, timezone
@@ -10,8 +10,6 @@ from pathlib import Path
 from market import MarketError
 from history_download import download_index_history, atomic_text
 from strategy import Candle, MINUTE, validate
-from pullback_strategy import pullback_features, VERSION
-from trend_strategy import trend_features, WARMUP_MINUTES
 from point_research import point_backtest
 from replay import exact_replay
 
@@ -19,30 +17,35 @@ from replay import exact_replay
 def evaluate(candles, payout=.8, ticks=None):
     validate(candles)
     if len(candles)<183:raise ValueError('评估至少需要183分钟连续指数历史')
-    split=max(WARMUP_MINUTES+1,len(candles)*2//3)
-    variants={}
-    for version, features in [('pullback_v3.0',pullback_features(candles)),('trend_v2.0',trend_features(candles))]:
-        segments={}
-        for name,start,stop in [('early',WARMUP_MINUTES,split),('holdout',split,len(candles))]:
-            points=point_backtest(candles,features,start,stop,payout)
-            daily={};busy_until=-1
-            for i in range(start,stop):
-                stamp=candles[i].time+MINUTE
-                day=datetime.fromtimestamp(stamp/1000,timezone.utc).date().isoformat()
-                row=daily.setdefault(day,dict(evaluated_minutes=0,qualified_minutes=0,opportunities=0))
-                row['evaluated_minutes']+=1
-                if features[i]['qualified']:
-                    row['qualified_minutes']+=1
-                    if stamp>=busy_until:row['opportunities']+=1;busy_until=stamp+601000
-            for row in daily.values():row['partial_day']=row['evaluated_minutes']!=1440
-            segments[name]=dict(reference=points,daily_utc=daily)
-        variants[version]=segments
+    from latest_strategy import latest_features, VERSION, VALIDATION_START_MS, validation_from_rows
+    features=latest_features(candles)
+    split=max(61,len(candles)*2//3)
+    segments={}
+    for name,start,stop in [('early',60,split),('holdout',split,len(candles))]:
+        points=point_backtest(candles,features,start,stop,payout)
+        daily={};busy_until=-1
+        for i in range(start,stop):
+            stamp=candles[i].time+MINUTE
+            day=datetime.fromtimestamp(stamp/1000,timezone.utc).date().isoformat()
+            row=daily.setdefault(day,dict(evaluated_minutes=0,qualified_minutes=0,opportunities=0))
+            row['evaluated_minutes']+=1
+            if features[i]['qualified']:
+                row['qualified_minutes']+=1
+                if stamp>=busy_until:row['opportunities']+=1;busy_until=stamp+601000
+        for row in daily.values():row['partial_day']=row['evaluated_minutes']!=1440
+        segments[name]=dict(reference=points,daily_utc=daily)
+    from bisect import bisect_left
+    fresh_start=bisect_left([c.time+MINUTE for c in candles],VALIDATION_START_MS)
+    if fresh_start<len(candles):
+        fresh=point_backtest(candles,features,fresh_start,len(candles),payout,keep_all=True)
+        future_rows=fresh['trades'];pending=fresh['unverified']
+    else:future_rows=[];pending=0
+    validation=validation_from_rows(future_rows,None,payout,pending)
     result=dict(strategy_version=VERSION,payout_assumption=payout,exact_contract_replay=False,
-                actual_order_results=False,production_push_backtest=False,
-                note='相同时间切分比较v2/v3固定规则；延后1分钟以指数分钟open为研究入场，再600秒用另一分钟open。并非任意秒位合约结算或实际推送结果。没有用此报告自动选参，未证明v3提高成功率。',
-                variants=variants,**variants[VERSION])
+                actual_order_results=False,production_push_backtest=False,research_validation=validation,
+                note='只评估当前固定策略；65%是新时段研究目标，已看过数据不能独立证明它。分钟开盘参考点研究不是实际订单，不自动选择参数。',**segments)
     if ticks is not None:
-        result['exact_candidate_replay']=exact_replay(candles,ticks,features=pullback_features(candles),payout=payout)
+        result['exact_candidate_replay']=exact_replay(candles,ticks,features=features,payout=payout)
         result['exact_candidate_replay']['strategy_version']=VERSION
     return result
 
@@ -59,7 +62,7 @@ def main():
     if not 3<=args.days<=90 or not .01<=args.payout<=2:p.error('days须3–90，payout须.01–2')
     output=Path(args.output);output.parent.mkdir(parents=True,exist_ok=True)
     download_metadata=None
-    print('评估下载工具 v3.1：每个请求最多尝试4次，完整页面自动缓存；不下单、不推送。',flush=True)
+    print('评估下载工具 v4.0：每个请求最多尝试4次，完整页面自动缓存；不下单、不推送。',flush=True)
     if args.input:
         source=Path(args.input)
         with source.open(encoding='utf-8',newline='') as stream:
@@ -87,9 +90,9 @@ def main():
     result['inputs_sha256']={'candles':hashlib.sha256(source.read_bytes()).hexdigest()}
     if args.ticks:result['inputs_sha256']['ticks']=hashlib.sha256(Path(args.ticks).read_bytes()).hexdigest()
     atomic_text(output,json.dumps(result,ensure_ascii=False,indent=2,allow_nan=False)+'\n')
-    for version,variant in result['variants'].items():
-        s=variant['holdout']['reference']
-        print(version,'后段研究样本',s['total'],'研究胜/亏/平',s['wins'],s['losses'],s['ties'],'未验证',s['unverified'],'研究命中率',s['win_rate_pct'])
+    stats=result['holdout']['reference']
+    print(result['strategy_version'],'后段研究样本',stats['total'],'研究胜/亏/平',stats['wins'],stats['losses'],stats['ties'],'未验证',stats['unverified'],'研究命中率',stats['win_rate_pct'])
+    print('65%为研究目标；冻结规则后的新样本：',result['research_validation']['reason'])
     print('不是实际订单胜率。报告：',output.resolve())
 
 
