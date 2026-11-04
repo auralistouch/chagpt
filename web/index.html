@@ -5,14 +5,14 @@
   <title>BTC · 十分钟观察台</title><link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <header><div class="logo">₿</div><div><h1>十分钟观察台</h1><p>BTCUSDT 指数 · 事件合约观察 · v1.7</p></div><span id="source" class="badge">尚未连接</span></header>
+  <header><div class="logo">₿</div><div><h1>十分钟观察台</h1><p>BTCUSDT 指数 · 事件合约观察 · v2.0</p></div><span id="source" class="badge">尚未连接</span></header>
   <main>
-    <div class="notice">按币安官方规则观察：<strong>提交后下一秒取开仓指数，再过600秒到期；平价退本金</strong>。默认使用BTCUSDT指数，量能单独采用现货成交量。实际赔率以订单确认为准。实际订单按单点指数结算；历史分钟K线只能给出可能价格范围，不能还原精确胜率；历史表现不保证未来收益。不自动下单。</div>
-    <p class="hint">实际订单只有一个开仓价和一个到期价。下方历史范围来自分钟K线，不是预测价格或指定入场区间。候选方向提醒保留五项指标，但不要求历史统计通过；数量可能增加，尚不能证明成功率提高。更改模式后请点击“保存手机设置”。</p>
+    <div class="notice">按币安官方规则观察：<strong>提交后下一秒取开仓指数，再过600秒到期；平价退本金</strong>。默认使用BTCUSDT指数，新策略只使用指数行情，不依赖现货成交量。实际赔率以订单确认为准。实际订单按单点指数结算；历史分钟K线只能给出可能价格范围，不能还原精确胜率；历史表现不保证未来收益。不自动下单。</div>
+    <p class="hint">v2.0新策略：5分钟趋势定方向，1分钟回踩重启或区间突破触发。过滤横盘、突发大波动和追价；不要求旧版五指标全部通过，也不等待历史样本凑满30笔。未证明盈利优势。保存手机设置后，Bark按所选策略运行。</p>
     <section class="controls">
       <label>数据来源<select id="mode"><option value="live" selected>币安 BTCUSDT 指数（合约观察）</option><option value="coinbase">Coinbase BTC/USD（行情研究）</option><option value="demo">合成演示（不能交易）</option></select></label>
       <label>模拟净收益比例<input id="payout" type="number" min="1" max="200" value="80" step="1"><span>%（不含返还本金）</span></label>
-      <label>提醒模式<select id="policy"><option value="strict">严格统计过滤（原模式）</option><option value="candidate">候选方向提醒（五项全过，未验证优势）</option></select></label>
+      <label>提醒模式<select id="policy"><option value="trend_v2" selected>新策略：5分钟趋势＋1分钟触发</option><option value="strict">严格统计过滤（原模式）</option><option value="candidate">候选方向提醒（五项全过，未验证优势）</option></select></label>
       <button id="refresh">获取分析</button><label class="auto"><input id="auto" type="checkbox"> 每 30 秒刷新</label>
     </section>
     <section class="alert-panel" aria-label="iPhone Bark 提醒">
@@ -53,9 +53,9 @@
       <section class="card chart"><div class="section-head"><h3>最近三小时走势</h3><span>一分钟收盘价</span></div><svg id="chart" viewBox="0 0 1000 220" role="img" aria-label="最近三小时比特币收盘价格曲线"></svg><div id="chart-range" class="hint"></div></section>
       <section class="grid bottom">
         <article class="card"><h3>指标检查</h3><p id="score" class="hint"></p><div id="metrics" class="metric-list"></div><ul id="reasons"></ul><p id="diagnostics" class="hint"></p><p class="hint">满足项数只是规则一致程度，不是上涨、下跌或盈利概率。</p></article>
-        <article class="card"><h3>后段保守区间验证</h3><p class="hint">时间顺序前 2/3 用于描述，后 1/3 单独验证；固定规则，没有自动调参。后段结果仍可能受市场状态影响。</p><div id="stats" class="stats"></div><p id="range" class="hint"></p><p id="gate" class="hint"></p><p id="early" class="hint"></p></article>
+        <article class="card"><details><summary>展开历史研究（不代表实时买点或精确胜率）</summary><p class="hint">时间顺序前 2/3 用于描述，后 1/3 单独验证；固定规则，没有自动调参。后段结果仍可能受市场状态影响。</p><div id="stats" class="stats"></div><p id="range" class="hint"></p><p id="gate" class="hint"></p><p id="early" class="hint"></p></details></article>
       </section>
-      <section class="card"><h3>后段最近 30 笔模拟记录</h3><div class="table-wrap"><table><thead><tr><th>信号时间</th><th>方向</th><th>历史开仓可能范围</th><th>历史到期可能范围</th><th>结果</th></tr></thead><tbody id="trades"></tbody></table></div><p class="hint">按下一秒开仓再过600秒到期，使用指数分钟高低范围保守验证；不确定结果在门槛中按失败计，平价退款。区间覆盖任意提交秒位，不把分钟收盘当作精确到期价。按每笔1单位计；不含实际订单延迟和动态赔率。</p></section>
+      <section class="card"><details><summary>展开历史分钟范围记录（实际订单为单点结算）</summary><div class="table-wrap"><table><thead><tr><th>信号时间</th><th>方向</th><th>历史开仓可能范围</th><th>历史到期可能范围</th><th>结果</th></tr></thead><tbody id="trades"></tbody></table></div><p class="hint">按下一秒开仓再过600秒到期，使用指数分钟高低范围保守验证；不确定结果在门槛中按失败计，平价退款。区间覆盖任意提交秒位，不把分钟收盘当作精确到期价。按每笔1单位计；不含实际订单延迟和动态赔率。新策略不以此门槛拦截提醒。</p></details></section>
     </div>
     <footer>先模拟观察，再决定是否使用。不要借款交易、不要亏损后翻倍加仓。这里的历史表现不代表未来结果。</footer>
   </main><script src="/alerts.js"></script><script src="/phone.js"></script><script src="/app.js"></script>

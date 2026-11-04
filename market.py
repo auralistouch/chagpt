@@ -21,7 +21,7 @@ class MarketError(RuntimeError):
         self.diagnostic = dict(code=code, provider=provider, http_status=http_status)
 
 
-def fetch_index_candles(previous=None, count=4320):
+def fetch_index_candles(previous=None, count=4320, include_spot_volume=True):
     """Index OHLC joined to explicit spot volume; index field 5 is NOT volume.
 
     Fail closed on either source, timestamp mismatch, gaps or duplicate rows.
@@ -44,7 +44,7 @@ def fetch_index_candles(previous=None, count=4320):
         rows = request('/fapi/v1/indexPriceKlines?'+query, FUTURES, '币安指数')
         volume_query = urlencode(dict(symbol='BTCUSDT', interval='1m', limit=1000,
                                       startTime=cursor, endTime=page_end-1))
-        volumes = request('/api/v3/klines?'+volume_query)
+        volumes = request('/api/v3/klines?'+volume_query) if include_spot_volume else None
         expected = set(range(cursor, page_end, MINUTE))
         def page(items):
             if not isinstance(items, list): raise RuntimeError('行情响应不是 K 线列表')
@@ -57,10 +57,11 @@ def fetch_index_candles(previous=None, count=4320):
             if set(result) != expected:
                 raise RuntimeError('指数与现货量能行情缺失或时间未对齐，暂停提示')
             return result
-        prices, spot = page(rows), page(volumes)
+        prices = page(rows)
+        spot = page(volumes) if include_spot_volume else None
         for stamp in sorted(expected):
             row = prices[stamp]
-            combined[stamp] = Candle(stamp, *map(float, row[1:5]), float(spot[stamp][5]))
+            combined[stamp] = Candle(stamp, *map(float, row[1:5]), float(spot[stamp][5]) if spot is not None else 0.0)
         cursor = page_end
     candles = [combined[t] for t in sorted(combined)]
     if len(candles) != count: raise RuntimeError('指数连续行情不足请求窗口，暂停提示')
@@ -190,3 +191,4 @@ def demo_candles(count=4320):
         candles.append(Candle(end-(count-i)*MINUTE, opening, max(price,opening)+spread,
                               min(price,opening)-spread, price, rng.uniform(5, 40)))
     return candles, int(time.time()*1000)
+

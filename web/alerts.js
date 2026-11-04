@@ -132,7 +132,7 @@
     // Include the entire browser request as a conservative allowance for slow
     // delivery; an observation that arrives late must never sound fresh.
     const age = data.data_age_seconds+(data.request_duration_seconds || 0);
-    if (data.price_kind !== 'index' || data.demo || !['UP', 'DOWN'].includes(data.action) || !Number.isFinite(age) || age < 0 || age >= 75 || !Number.isFinite(data.signal_time)) {
+    if (data.price_kind !== 'index' || data.demo || !['UP', 'DOWN'].includes(data.action) || !Number.isFinite(age) || age < 0 || age >= (data.freshness_limit_seconds || 75) || !Number.isFinite(data.signal_time)) {
       pause(); return;
     }
     const quoteAge = data.quote_age_seconds+(data.request_duration_seconds || 0);
@@ -144,7 +144,7 @@
     const direction = data.action === 'UP' ? '看涨' : '看跌';
     const stamp = new Date(data.signal_time).toLocaleString('zh-CN', {hour12: false});
     const sound = tone();
-    const notified = desktop(`BTC ${data.policy === 'candidate' ? '候选' : '严格'}方向 · ${direction}`, `${data.source} · ${data.pair}\n指数快照 ${data.reference_price} · 指标时间 ${stamp}\n${data.policy === 'candidate' ? '未通过历史统计门槛，尚未验证优势。' : ''}仅供观察，不是下单指令。`, 'btc-observer-signal', Math.max(0, Math.min(75000-age*1000, 15000-quoteAge*1000)));
+    const notified = desktop(`BTC ${data.policy === 'trend_v2' ? '新策略' : data.policy === 'candidate' ? '候选' : '严格'}方向 · ${direction}`, `${data.source} · ${data.pair}\n指数快照 ${data.reference_price} · 指标时间 ${stamp}\n${data.policy === 'trend_v2' ? `${data.setup}；有效至 ${new Date(data.valid_until).toLocaleTimeString()}。未证明盈利优势。` : data.policy === 'candidate' ? '未通过历史统计门槛，尚未验证优势。' : ''}仅供观察，不是下单指令。`, 'btc-observer-signal', Math.max(0, Math.min((data.freshness_limit_seconds || 75)*1000-age*1000, 15000-quoteAge*1000)));
     if (sound || notified) {
       lastAlert = {time:data.signal_time};
       try { localStorage.setItem(storageKey, JSON.stringify(lastAlert)); } catch { /* Use in-memory cooldown. */ }

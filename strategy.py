@@ -144,14 +144,14 @@ def backtest(candles, features, start, stop, payout):
                 trades=trades[-30:])
 
 
-def analyze(candles, now_ms, payout=0.8, demo=False, price_kind='spot', quote=None, policy='strict'):
+def analyze(candles, now_ms, payout=0.8, demo=False, price_kind='spot', quote=None, policy='strict', feature_builder=None):
     if policy not in ('strict', 'candidate'): raise ValueError('提醒模式无效')
     validate(candles)
     if not math.isfinite(payout) or not 0.01 <= payout <= 2:
         raise ValueError("净收益比例必须在 1% 至 200% 之间")
     if candles[-1].time+MINUTE > now_ms:
         raise ValueError("行情包含尚未收盘的 K 线")
-    features = indicators(candles)
+    features = (feature_builder or indicators)(candles)
     split = max(WARMUP+HORIZON+1, int(len(candles)*2/3))
     split = min(split, len(candles)-1)
     early = backtest(candles, features, WARMUP, split, payout)
@@ -167,7 +167,7 @@ def analyze(candles, now_ms, payout=0.8, demo=False, price_kind='spot', quote=No
     if price_kind != 'index': block('not_index', '当前来源不是币安 BTCUSDT 指数，仅供研究，不发送合约观察提醒')
     if demo: block('demo', '当前为合成演示行情，禁止用于交易')
     if not current['qualified']:
-        block('indicators', '当前未同时满足全部五项指标条件')
+        block('indicators', '当前未满足新策略趋势与触发条件' if feature_builder else '当前未同时满足全部五项指标条件')
         blockers.extend(c['label']+'：未通过' for c in current.get('checks', []) if not c['passed'])
         codes.extend('rule_'+c for c in current.get('failed_rules', []))
     if policy == 'strict' and holdout['total'] < 30: block('sample_size', f"后段样本 {holdout['total']}/30，暂不能评估可靠性")
@@ -176,7 +176,9 @@ def analyze(candles, now_ms, payout=0.8, demo=False, price_kind='spot', quote=No
     quote_age = now_ms-quote['time'] if quote else None
     if price_kind == 'index' and (quote_age is None or not 0 <= quote_age < 15_000):
         block('stale_index_quote', '当前指数快照缺失或超过15秒，暂停提示')
-    counts = {code: sum(code in f.get('failed_rules', []) for f in features[WARMUP:]) for code in RULES}
+    codes_to_count = [c['code'] for c in current.get('checks', [])] if feature_builder else RULES
+    evaluated_start = current.get('warmup_minutes', WARMUP)
+    counts = {code: sum(code in f.get('failed_rules', []) for f in features[evaluated_start:]) for code in codes_to_count}
     action = current['direction'] if not codes else 'WAIT'
     return dict(policy=policy, advantage_verified=False,
                 warnings=['候选提醒仅要求五项指标全过，未通过历史统计门槛；不代表胜率提高'] if policy == 'candidate' else [],
@@ -188,8 +190,8 @@ def analyze(candles, now_ms, payout=0.8, demo=False, price_kind='spot', quote=No
                 timing_rule='next_second_open_then_600s',
                 price_kind=price_kind, quote_age_seconds=round(quote_age/1000, 3) if quote_age is not None else None,
                 freshness_limit_seconds=75, blocker_codes=codes,
-                diagnostics=dict(candles=len(candles), evaluated_minutes=len(features)-WARMUP,
-                                 qualified_minutes=sum(f['qualified'] for f in features[WARMUP:]),
+                diagnostics=dict(candles=len(candles), evaluated_minutes=max(0, len(features)-evaluated_start),
+                                 qualified_minutes=sum(f['qualified'] for f in features[evaluated_start:]),
                                  failed_rule_counts=counts, gate_sample_required=30,
                                  gate_lower_required_pct=round(100*(breakeven+.02), 4),
                                  gate_passed=eligible, validation='下一秒开仓再600秒到期；指数分钟区间保守界限，非精确结算回测'),

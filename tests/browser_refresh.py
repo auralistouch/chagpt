@@ -68,7 +68,7 @@ class RefreshBrowserTests(unittest.TestCase):
         self.route(['ok','abort','ok'])
         self.page.check('#auto')
         expect(self.page.locator('#source')).to_have_text('币安 BTCUSDT 指数 · 已获取')
-        self.assertIn('观察看涨',self.page.locator('#action').inner_text())
+        self.assertIn('看涨信号',self.page.locator('#action').inner_text())
         self.tick(30000,2)
         expect(self.page.locator('#error')).to_contain_text('浏览器未能连接本机程序')
         expect(self.page.locator('#action')).to_contain_text('暂停信号')
@@ -189,7 +189,7 @@ class RefreshBrowserTests(unittest.TestCase):
     def test_index_quote_expiry_removes_direction_and_closes_notification(self):
         self.mock_alert_apis(); self.route(['ok'])
         self.page.check('#desktop-alerts'); self.page.click('#enable-alerts')
-        expect(self.page.locator('#action')).to_contain_text('观察看涨')
+        expect(self.page.locator('#action')).to_contain_text('看涨信号')
         self.page.uncheck('#auto')
         self.page.clock.run_for(15001)
         expect(self.page.locator('#action')).to_contain_text('行情已过期')
@@ -257,3 +257,4 @@ class RefreshBrowserTests(unittest.TestCase):
 
 
 if __name__=='__main__': unittest.main(verbosity=2)
+

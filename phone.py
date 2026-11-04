@@ -59,7 +59,7 @@ class PhoneMonitor:
         self.stop_event = threading.Event()
         self.thread = None
         self.revision = 0
-        self.state = dict(key='', enabled=False, mode='live', payout=.8, policy='strict', last_signal_time=0)
+        self.state = dict(key='', enabled=False, mode='live', payout=.8, policy='trend_v2', last_signal_time=0)
         self.message = '手机提醒尚未配置'
         self.last_check = None
         self.last_push = None
@@ -76,13 +76,13 @@ class PhoneMonitor:
                     raise ValueError()
                 if not math.isfinite(saved['payout']) or not .01 <= saved['payout'] <= 2:
                     raise ValueError()
-                if saved.get('policy', 'strict') not in ('strict', 'candidate'): raise ValueError()
+                if saved.get('policy', 'strict') not in ('strict', 'candidate', 'trend_v2'): raise ValueError()
                 last = saved.get('last_signal_time', 0)
                 if not isinstance(last, (int, float)) or not math.isfinite(last) or last < 0:
                     raise ValueError()
                 self.state.update(saved)  # Preserve existing and future configuration fields.
                 self.state.update(key=parsed_key, enabled=saved['enabled'] and bool(parsed_key),
-                                  mode=saved['mode'], payout=saved['payout'], last_signal_time=last)
+                                  mode=saved['mode'], payout=saved['payout'], policy=saved.get('policy', 'strict'), last_signal_time=last)
                 self.message = '已读取本机配置，等待检查' if self.state['enabled'] else '手机提醒已停用'
             except Exception:
                 self.message = '本机手机配置无法读取，已停用；请重新保存设置'
@@ -122,7 +122,7 @@ class PhoneMonitor:
         if not isinstance(raw, str): raise ValueError('设备密钥格式不正确')
         with self.lock:
             policy = values.get('policy', self.state['policy'])
-            if policy not in ('strict', 'candidate'): raise ValueError('提醒模式无效')
+            if policy not in ('strict', 'candidate', 'trend_v2'): raise ValueError('提醒模式无效')
             candidate = {**self.state, 'enabled': enabled, 'mode': mode, 'payout': payout, 'policy': policy}
             if raw.strip(): candidate['key'] = device_key(raw)
             if enabled and not candidate['key']: raise ValueError('请先在本机网页填写 Bark 推送地址')
@@ -186,6 +186,7 @@ class PhoneMonitor:
             data = (self.reporter(settings['mode'], settings['payout'], settings['policy'])
                     if settings['policy'] != 'strict' else self.reporter(settings['mode'], settings['payout']))
             report_finished = time.monotonic()
+            fresh_limit = min(75, data.get('freshness_limit_seconds', 75))
             stamp = data.get('signal_time')
             age = data.get('data_age_seconds')
             quote_age = data.get('quote_age_seconds')
@@ -193,14 +194,14 @@ class PhoneMonitor:
                      and data.get('price_kind') == 'index' and settings['mode'] == 'live'
                      and isinstance(quote_age, (int, float)) and math.isfinite(quote_age) and 0 <= quote_age < 15
                      and isinstance(stamp, (int, float)) and math.isfinite(stamp)
-                     and isinstance(age, (int, float)) and math.isfinite(age) and 0 <= age < 75)
+                     and isinstance(age, (int, float)) and math.isfinite(age) and 0 <= age < fresh_limit)
             with self.lock:
                 if revision != self.revision or self.stop_event.is_set(): return
                 self.last_check = int(time.time()*1000)
                 self.last_diagnostics = {k: data.get(k) for k in (
                     'source', 'volume_source', 'action', 'signal_time', 'observation_time',
                     'data_age_seconds', 'quote_age_seconds', 'price_kind', 'metrics', 'diagnostics',
-                    'blocker_codes', 'blockers', 'payout', 'breakeven_pct', 'policy', 'warnings')}
+                    'blocker_codes', 'blockers', 'payout', 'breakeven_pct', 'policy', 'warnings', 'strategy_version', 'setup', 'signal_reasons')}
                 self._record('check_result', duration_ms=self.last_check-check_started,
                              **self.last_diagnostics, holdout={k: data.get('holdout', {}).get(k) for k in (
                                  'total', 'wins', 'losses', 'unresolved', 'lower_bound', 'profit_units', 'exact', 'by_direction')})
@@ -209,8 +210,8 @@ class PhoneMonitor:
                     reasons = list(data.get('blockers', []))
                     if data.get('price_kind') != 'index':
                         codes.append('phone_not_index'); reasons.append('手机合约提醒需要币安指数来源')
-                    if not isinstance(age, (int, float)) or not math.isfinite(age) or not 0 <= age < 75:
-                        codes.append('phone_stale'); reasons.append('手机要求指标行情小于75秒')
+                    if not isinstance(age, (int, float)) or not math.isfinite(age) or not 0 <= age < fresh_limit:
+                        codes.append('phone_stale'); reasons.append(f'手机要求指标行情小于{fresh_limit}秒')
                     if not isinstance(quote_age, (int, float)) or not math.isfinite(quote_age) or not 0 <= quote_age < 15:
                         codes.append('phone_stale_index'); reasons.append('手机要求指数快照小于15秒')
                     self._blocked(codes or ['invalid_signal'], reasons or ['没有有效观察方向'])
@@ -227,17 +228,21 @@ class PhoneMonitor:
                 direction = '看涨' if data['action'] == 'UP' else '看跌'
                 baseline = datetime.fromtimestamp(stamp/1000).astimezone().isoformat(timespec='seconds')
                 risk_note = '候选提醒：未通过历史统计门槛，尚未验证优势。' if settings['policy'] == 'candidate' else '严格统计过滤提醒，仍不保证结果。'
-                body = risk_note + '\n' + f"{data.get('source', '')} · {data.get('pair', '')}\n指数快照 {data.get('reference_price')}\n指标基准 {baseline}\n官方规则：提交后下一秒取开仓指数，再过600秒结算；平价退本金。验证假设赢+{settings['payout']*100:g}%/输-100%，实际赔率以确认订单为准。此快照不是实际开仓价；仅供观察，不是下单指令。"
+                if settings['policy'] == 'trend_v2': risk_note = '新策略信号：5分钟趋势＋1分钟触发；未证明盈利优势。'
+                trigger_note = f"触发：{data.get('setup', '指标共振')}；参考有效至 {datetime.fromtimestamp(data['valid_until']/1000).astimezone().isoformat(timespec='seconds')}\n" if data.get('valid_until') else ''
+                if data.get('signal_close') is not None: trigger_note += f"信号收盘指数 {data['signal_close']}\n"
+                why = '原因：'+'；'.join(data.get('signal_reasons', [])[-3:])+'\n' if data.get('signal_reasons') else ''
+                body = trigger_note + why + risk_note + '\n' + f"{data.get('source', '')} · {data.get('pair', '')}\n指数快照 {data.get('reference_price')}\n指标基准 {baseline}\n官方规则：提交后下一秒取开仓指数，再过600秒结算；平价退本金。验证假设赢+{settings['payout']*100:g}%/输-100%，实际赔率以确认订单为准。此快照不是实际开仓价；仅供观察，不是下单指令。"
             # Network I/O must not block saving a stop request or reading status.
             with self.lock:
                 if revision != self.revision or self.stop_event.is_set(): return
                 elapsed = time.monotonic()-report_finished
-                if age+elapsed >= 75 or quote_age+elapsed >= 15:
+                if age+elapsed >= fresh_limit or quote_age+elapsed >= 15:
                     self._blocked(['stale_before_push'], ['本机处理后行情已过期，取消推送'])
                     return
             phase = 'push'
             self._record('push_attempt', kind='signal', signal_time=stamp)
-            self.sender(settings['key'], f"BTC {'候选' if settings['policy'] == 'candidate' else '严格'}方向 · {direction}", body)
+            self.sender(settings['key'], f"BTC {'新策略信号' if settings['policy'] == 'trend_v2' else '候选方向' if settings['policy'] == 'candidate' else '严格方向'} · {direction}", body)
             self._push_result('accepted', 'signal', stamp)
             with self.lock:
                 if revision != self.revision: return
