@@ -16,7 +16,7 @@ from trend_strategy import analyze_trend
 from pullback_strategy import analyze_pullback, pullback_features
 from point_research import point_backtest
 from trend_strategy import trend_features
-from latest_strategy import analyze_latest
+from latest_strategy import analyze_latest, latest_features
 from latest_phone import LatestPhoneMonitor
 from evidence_history import IndexEvidenceHistory
 from order_review import review_csv
@@ -30,7 +30,7 @@ EVIDENCE_HISTORY = None
 def report(mode, payout, policy='strict'):
     with LOCK:
         now = time.monotonic()
-        index_only = policy in ('trend_v2', 'pullback_v3', 'latest_v5')
+        index_only = policy in ('trend_v2', 'pullback_v3', 'latest_v6')
         cache_key = (mode, 'index_only') if index_only else mode
         saved = CACHE.get(cache_key)
         if not saved or now-saved['fetched'] >= 30:
@@ -40,7 +40,7 @@ def report(mode, payout, policy='strict'):
                     candles, exchange_now = fetch_coinbase(saved.get('candles') if saved else None)
                 elif mode == 'live':
                     previous = saved.get('candles') if saved else None
-                    if policy == 'latest_v5' and EVIDENCE_HISTORY is not None:
+                    if policy == 'latest_v6' and EVIDENCE_HISTORY is not None:
                         disk = EVIDENCE_HISTORY.seed()
                         joined = {c.time: c for c in disk}
                         joined.update((c.time,c) for c in (previous or []))
@@ -66,18 +66,22 @@ def report(mode, payout, policy='strict'):
             raise saved['exception']
         analysis_candles = saved['candles']
         history_diagnostic = None
-        if policy == 'latest_v5' and mode == 'live' and EVIDENCE_HISTORY is not None:
+        if policy == 'latest_v6' and mode == 'live' and EVIDENCE_HISTORY is not None:
             analysis_candles, history_diagnostic = EVIDENCE_HISTORY.merge(analysis_candles)
         # Fetch the snapshot after any durable-history work so a slow disk
         # cannot make an already-fetched quote look current.
         # Fetch an independent current index snapshot on every check, even when
         # the much larger closed-candle history is still cached.
+        if policy == 'latest_v6' and mode == 'live':
+            # Warm the fixed model and historical feature cache before fetching
+            # the fresh snapshot; first inference must not age that quote.
+            latest_features(analysis_candles)
         quote = fetch_index_quote() if mode == 'live' else None
         clock = saved['clock']+int((time.monotonic()-saved['fetched'])*1000)
         analyzer = {'trend_v2': analyze_trend, 'pullback_v3': analyze_pullback,
-                    'latest_v5': analyze_latest}.get(policy, analyze)
+                    'latest_v6': analyze_latest}.get(policy, analyze)
         options = {} if index_only else dict(policy=policy)
-        analysis_started=time.monotonic() if policy=='latest_v5' else None
+        analysis_started=time.monotonic() if policy=='latest_v6' else None
         result = analyzer(analysis_candles, clock, payout, mode == 'demo',
                           price_kind='index' if mode == 'live' else 'spot', quote=quote, **options)
         if analysis_started is not None:
@@ -111,7 +115,7 @@ def report(mode, payout, policy='strict'):
         result['source'] = {'coinbase': 'Coinbase 现货（研究）', 'live': '币安 BTCUSDT 指数', 'demo': '合成演示'}[mode]
         result['volume_source'] = '币安 BTCUSDT 现货成交量（仅量能指标）' if mode == 'live' else result['source']
         if policy in ('trend_v2', 'pullback_v3'): result['volume_source'] = '新策略不使用成交量，仅请求指数行情'
-        if policy == 'latest_v5': result['volume_source'] = '最新版不使用成交量，仅请求指数行情'
+        if policy == 'latest_v6': result['volume_source'] = '最新版不使用成交量，仅请求指数行情'
         result['pair'] = 'BTC / USD' if mode == 'coinbase' else 'BTC / USDT'
         result['quote'] = 'USD' if mode == 'coinbase' else 'USDT'
         return result
@@ -145,8 +149,8 @@ class Handler(BaseHTTPRequestHandler):
                 mode = query.get('mode', ['live'])[0]
                 if mode not in ('coinbase', 'live', 'demo') or not math.isfinite(payout) or not 0.01 <= payout <= 2:
                     raise ValueError('模式或净收益比例无效')
-                policy = query.get('policy', ['latest_v5'])[0]
-                if policy != 'latest_v5': raise ValueError('仅支持最新版策略，请刷新网页后重试')
+                policy = query.get('policy', ['latest_v6'])[0]
+                if policy != 'latest_v6': raise ValueError('仅支持最新版策略，请刷新网页后重试')
                 result = report(mode, payout, policy)
                 return self.send(200, json.dumps(result, ensure_ascii=False, allow_nan=False).encode())
             except ValueError as e:
@@ -212,7 +216,7 @@ if __name__ == '__main__':
     print(f'行情提示工具已启动，端口 {args.port}；仅提示，不下单。', flush=True)
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     config_dir = Path(os.environ.get('BTC_OBSERVER_CONFIG_DIR', str(Path.home()/'.config/btc-observer')))
-    EVIDENCE_HISTORY = IndexEvidenceHistory(config_dir/'history'/'latest_v5')
+    EVIDENCE_HISTORY = IndexEvidenceHistory(config_dir/'history'/'latest_v6')
     server.phone_monitor = LatestPhoneMonitor(config_dir/'phone.json', report)
     server.phone_monitor.start()
     try:

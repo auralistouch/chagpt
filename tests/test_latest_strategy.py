@@ -1,102 +1,65 @@
-import csv,json,math
-from pathlib import Path
+import math
 import unittest
 from unittest.mock import patch
-from strategy import Candle,MINUTE
-from latest_strategy import *
+from strategy import Candle, MINUTE
+from latest_strategy import analyze_latest, latest_features, POLICY, VERSION
+from consensus_inference import load_bundle
+
+START=load_bundle()['metadata']['calibration_end_exclusive']
+
+def data(count=300,flat=False):
+    rows=[];last=100.
+    for i in range(count):
+        close=100. if flat else 100.+.4*math.sin(i/7)+.2*math.sin(i/2)
+        rows.append(Candle(START+i*MINUTE,last,max(last,close)+.1,min(last,close)-.1,close,0))
+        last=close
+    return rows
+
+
+def forced(rows,side='UP'):
+    return [dict(qualified=True,direction=side,score=5,checks=[],failed_rules=[],reasons=[],
+                 atr=1,atr_pct=1,rsi=50,efficiency_20=.2,close_location=.5,
+                 setup='模拟行情共识',model_agreement=True,model_strength_ratios={'hgb':1.2,'extra_trees':1.1},warmup_minutes=120) for _ in rows]
+
 
 class LatestStrategyTests(unittest.TestCase):
-    def test_research65_uses_aggregate_completed_rate_without_bound(self):
-        rows=[dict(direction='UP',outcome='WIN') for _ in range(65)]+[dict(direction='UP',outcome='LOSS') for _ in range(35)]
-        check=validation_from_rows(rows,'UP',.8)
-        self.assertTrue(check['passed'])
-        self.assertEqual(check['observed_pct'],65)
-        good=[dict(direction='UP',outcome='WIN') for _ in range(85)]+[dict(direction='UP',outcome='LOSS') for _ in range(15)]
-        self.assertTrue(validation_from_rows(good,'UP',.8)['passed'])
-        self.assertTrue(validation_from_rows(good,'DOWN',.8)['passed'])
-        self.assertFalse(validation_from_rows(good[:99],'UP',.8)['passed'])
-
-    def test_ties_are_not_wins_and_directions_are_combined(self):
-        def rows(side,wins,losses,ties=0):
-            return [dict(direction=side,outcome='WIN')]*wins+[dict(direction=side,outcome='LOSS')]*losses+[dict(direction=side,outcome='TIE')]*ties
-        check=validation_from_rows(rows('UP',60,30,10),'UP',.8)
-        self.assertEqual(check['observed_pct'],60);self.assertFalse(check['passed'])
-        check=validation_from_rows(rows('UP',65,30,5),'UP',.8)
-        self.assertEqual(check['observed_pct'],65);self.assertTrue(check['passed'])
-        check=validation_from_rows(rows('UP',40,10)+rows('DOWN',25,25),'DOWN',.8)
-        self.assertEqual(check['total'],100);self.assertTrue(check['passed'])
-        check=validation_from_rows(rows('UP',65,35),'UP',.1)
-        self.assertTrue(check['hit_rate_target_met']);self.assertFalse(check['passed'])
-        self.assertFalse(check['profit_requirement_met'])
-        self.assertIn('净盈亏',check['reason'])
-        self.assertFalse(validation_from_rows(rows('UP',64,36),'UP',.8)['passed'])
-
-    def test_seen_data_never_certifies65_or_notifies(self):
-        data=[Candle(i*MINUTE,100,101,99,100,0) for i in range(300)]
-        features=[dict(qualified=True,direction='UP',score=4,checks=[],failed_rules=[],reasons=[],atr=1,atr_pct=1,rsi=30,efficiency_20=.2,close_location=.8,setup='带外回归确认') for _ in data]
-        now=data[-1].time+MINUTE
-        with patch('latest_strategy.latest_features',return_value=features):
-            result=analyze_latest(data,now,price_kind='index',quote=dict(price=100,time=now),research_mode=False)
-        self.assertEqual(result['action'],'WAIT')
-        self.assertEqual(result['research_validation']['total'],0)
-        self.assertFalse(result['research_validation']['passed'])
-        self.assertFalse(result['guaranteed_win_rate'])
-        self.assertIn('target_not_validated',result['blocker_codes'])
-        self.assertEqual(result['policy'],POLICY)
-        self.assertEqual(result['strategy_version'],VERSION)
-
-    def test_post_freeze_simulated_samples_can_pass_but_not_guarantee(self):
-        data=[]
-        for i in range(1500):
-            price=100+i*.01
-            data.append(Candle(VALIDATION_START_MS+i*MINUTE,price,price+.02,price-.02,price+.005,0))
-        features=[dict(qualified=True,direction='UP',score=4,checks=[],failed_rules=[],reasons=[],atr=1,atr_pct=1,rsi=30,efficiency_20=.2,close_location=.8,setup='模拟条件') for _ in data]
-        now=data[-1].time+MINUTE
-        with patch('latest_strategy.latest_features',return_value=features):
-            result=analyze_latest(data,now,price_kind='index',quote=dict(price=data[-1].close,time=now))
+    def test_historical_zero_wins_and_small_sample_do_not_block_a_current_signal(self):
+        rows=data(flat=True);now=rows[-1].time+MINUTE
+        with patch('latest_strategy.latest_features',return_value=forced(rows)):
+            result=analyze_latest(rows,now,payout=.01,price_kind='index',quote={'price':100,'time':now})
         self.assertEqual(result['action'],'UP')
-        self.assertTrue(result['research_validation']['passed'])
-        self.assertGreaterEqual(result['research_validation']['decisive'],100)
+        self.assertEqual(result['quality_assessment']['test_win_rate_pct'],0)
+        self.assertLess(result['quality_assessment']['test_samples'],100)
+        self.assertNotIn('research_validation',result)
+        self.assertFalse(result['selection_diagnostics']['past_hit_rate_permission_gate'])
+        self.assertIsNone(result['selection_diagnostics']['count_quota'])
         self.assertFalse(result['guaranteed_win_rate'])
-        self.assertFalse(result['advantage_verified'])
-
-    def test_causality_and_new_rules_wait_on_flat_prices(self):
-        data=[];last=100
-        for i in range(400):
-            close=100+.1*math.sin(i/3)
-            data.append(Candle(i*MINUTE,last,max(last,close)+.02,min(last,close)-.02,close,0));last=close
-        whole=latest_features(data)
-        for count in (71,120,199,301):self.assertEqual(whole[:count],latest_features(data[:count]))
-        flat=[Candle(i*MINUTE,100,100,100,100,0) for i in range(300)]
-        self.assertFalse(any(row['qualified'] for row in latest_features(flat)))
-
-    def test_research_mode_retains_targets_but_does_not_gate_on_unseen_samples(self):
-        data=[Candle(i*MINUTE,100,101,99,100,0) for i in range(300)]
-        features=[dict(qualified=True,direction='UP',score=4,checks=[],failed_rules=[],reasons=[],atr=1,atr_pct=1,rsi=30,efficiency_20=.2,close_location=.8,setup='模拟研究') for _ in data]
-        now=data[-1].time+MINUTE
-        with patch('latest_strategy.latest_features',return_value=features):
-            result=analyze_latest(data,now,price_kind='index',quote=dict(price=100,time=now))
-        self.assertEqual(result['action'],'UP')
-        self.assertTrue(result['research_mode'])
-        self.assertFalse(result['research_validation']['passed'])
-        self.assertEqual(result['research_validation']['total'],0)
-        self.assertFalse(result['frequency_research']['enough_data'])
-        self.assertNotIn('target_not_validated',result['blocker_codes'])
+        self.assertEqual((result['policy'],result['strategy_version']),(POLICY,VERSION))
         self.assertEqual(result['reference_entry_time'],now+MINUTE)
         self.assertEqual(result['reference_expiry_time']-result['reference_entry_time'],600000)
 
-    def test_latest_is_exact_fixed_atr_candidate_not_the_old_primary(self):
-        from reversion_rules import reversion_features
-        data=[Candle(i*MINUTE,100,101,99,100+.1*math.sin(i),0) for i in range(300)]
-        expected=reversion_features(data,'atr_rejection')
-        self.assertEqual([x['qualified'] for x in latest_features(data)], [x['qualified'] for x in expected])
-        self.assertEqual([x['direction'] for x in latest_features(data)], [x['direction'] for x in expected])
+    def test_source_quote_and_candle_freshness_are_still_required(self):
+        rows=data(flat=True);now=rows[-1].time+MINUTE
+        with patch('latest_strategy.latest_features',return_value=forced(rows)):
+            for changes in ({'now_ms':now+60000},{'quote':None},{'price_kind':'spot'},{'demo':True},
+                            {'quote':{'price':100,'time':now-15000}}):
+                args=dict(candles=rows,now_ms=now,price_kind='index',quote={'price':100,'time':now})
+                args.update(changes)
+                self.assertEqual(analyze_latest(**args)['action'],'WAIT')
 
-    def test_legacy_primary_is_preserved_only_for_research(self):
-        import reversion_rules
-        self.assertEqual(reversion_rules.PRIMARY,'band_reentry')
-        self.assertEqual(set(reversion_rules.CANDIDATES),{'band_reentry','atr_rejection','failed_breakout'})
-        self.assertEqual(MIN_SAMPLES,100)
-        self.assertEqual(TARGET,.65)
+    def test_actual_feature_prefixes_do_not_look_forward(self):
+        rows=data(700);whole=latest_features(rows)
+        for count in (121,199,301,601):self.assertEqual(whole[:count],latest_features(rows[:count]))
+        flat=[Candle(START+i*MINUTE,100,100,100,100,0) for i in range(200)]
+        self.assertFalse(any(r['qualified'] for r in latest_features(flat)))
+
+    def test_training_period_is_not_advertised_as_output_performance(self):
+        rows=[Candle(i*MINUTE,100,101,99,100,0) for i in range(300)]
+        self.assertFalse(any(r['qualified'] for r in latest_features(rows)))
+        result=analyze_latest(rows,300*MINUTE,price_kind='index',quote={'price':100,'time':300*MINUTE})
+        self.assertIsNone(result['reference_study']['holdout'])
+        self.assertEqual(result['quality_assessment']['test_samples'],0)
+        self.assertIsNone(result['quality_assessment']['test_win_rate_pct'])
+
 
 if __name__=='__main__':unittest.main()

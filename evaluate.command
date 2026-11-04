@@ -1,6 +1,6 @@
 #!/bin/sh
 cd "$(dirname "$0")" || exit 1
-printf '\n评估下载工具 v5.0：请保持本窗口打开，进度会逐页显示。\n下载中断会保留进度，下次双击可继续，不用从头下载。\n\n'
+printf '\n评估下载工具 v6.0：请保持本窗口打开，进度会逐页显示。\n下载中断会保留进度，下次双击可继续，不用从头下载。\n\n'
 python3 -u evaluate.py --days 30 --output work/pullback-evaluation.json
 status=$?
 if [ "$status" -eq 0 ]; then

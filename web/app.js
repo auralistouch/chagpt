@@ -1,7 +1,7 @@
 const $ = id => document.getElementById(id);
-const CURRENT_POLICY = 'latest_v5';
-const CURRENT_VERSION = 'activity_v5.0';
-const STRATEGY_NAME = 'ATR偏离后的反转研究';
+const CURRENT_POLICY = 'latest_v6';
+const CURRENT_VERSION = 'precision_v6.0';
+const STRATEGY_NAME = '多周期指数共识研究';
 const time = value => Number.isFinite(value) ? new Date(value).toLocaleString('zh-CN', {hour12: false}) : '无数据';
 const price = value => Number(value).toLocaleString('zh-CN', {minimumFractionDigits: 2, maximumFractionDigits: 2});
 const percent = value => Number.isFinite(value) ? `${value}%` : '无样本';
@@ -46,10 +46,8 @@ function scheduleRefresh(delay) {
   timer = setTimeout(() => load(), delay);
 }
 function render(data) {
-  const validation = data.research_validation;
-  const validated = validation?.passed === true;
   const researchMode = data.research_mode === true;
-  const action = validated || researchMode ? data.action : 'WAIT';
+  const action = researchMode ? data.action : 'WAIT';
   hasResult = true;
   $('empty').hidden = true; $('error').hidden = true; $('results').hidden = false;
   text('source', data.demo ? '演示数据 · 禁止交易' : `${data.source} · 已获取`);
@@ -58,21 +56,13 @@ function render(data) {
   $('action').className = action === 'UP' ? 'positive' : action === 'DOWN' ? 'negative' : '';
   const setup = data.setup ? ` · ${data.setup}` : '';
   const validity = Number.isFinite(data.valid_until) ? `参考有效至 ${time(data.valid_until)}。` : '';
-  const validationReason = validation?.reason || '暂无验收数据，保持等待。';
   const note = data.demo ? '这是合成行情，用于熟悉界面，研究数值均无交易意义。' : data.price_kind === 'index' ? `${STRATEGY_NAME}${setup}。${validity}指标使用已收盘K线；当前指数快照不是实际开仓价，实际赔率和结算以订单为准。` : '独立现货行情研究，不能验证币安事件合约；不会发送合约观察提醒。';
-  text('signal-note', `${researchMode ? '研究模式 · 未验证65%。' : ''}${note}${validated ? '' : ` 研究验收未通过：${validationReason}`}`);
-  list('blockers', [...new Set([...(data.blockers || []), ...(data.warnings || []), ...(validated ? [] : [validationReason])])]);
-  text('validation-status', validated ? `研究验收已通过：${validationReason}` : `${researchMode ? '研究模式 · 未验证65%' : '等待'} · ${validationReason}`);
-  $('validation-status').className = validated ? 'positive' : '';
-  text('validation-details', validation ? `验收目标 ${percent(validation.target_pct)}；最低已结算样本 ${validation.min_samples}；已完成 ${validation.total}（胜 ${validation.wins} / 亏 ${validation.losses} / 平 ${validation.ties}）。累计命中率 ${percent(validation.observed_pct)}（获胜 ÷ 全部已结算，平价不算赢）；未验证 ${validation.unverified ?? 0}。验证起点：${time(validation.validation_start)}。研究结果不代表你的实单胜率。` : `尚无当前策略的验收数据。${researchMode ? '研究模式观察方向不代表已经达标。' : '不发送方向提醒。'}`);
-  const frequency = data.price_kind === 'index' && !data.demo ? data.frequency_research : null;
-  if (frequency?.enough_data === true && frequency.complete_window_count > 0) {
-    text('frequency-status', `历史分钟参考：每12小时平均 ${Number(frequency.average).toFixed(2)} 次，最少 ${frequency.minimum} 次，最多 ${frequency.maximum} 次；目标约 ${frequency.target} 次。`);
-    text('frequency-details', `完整滚动窗口 ${frequency.complete_window_count} 个；中位数 ${frequency.median} 次；达到 ${frequency.target} 次的窗口占 ${percent(frequency.windows_at_target_pct)}。这些是候选研究记录，未重演实时拦截、通知和人工操作。`);
-  } else {
-    text('frequency-status', '尚无完整12小时研究窗口，无法判断信号频率是否达到目标。');
-    text('frequency-details', '需要连续且具备完整到期端点的指数历史；无数据不按达标或零次完整窗口处理。');
-  }
+  text('signal-note', `${researchMode ? '研究方向，准确率待持续验证。' : ''}${note}`);
+  list('blockers', [...new Set([...(data.blockers || []), ...(data.warnings || [])])]);
+  const quality = data.quality_assessment;
+  const qualityStatus = quality?.status === 'insufficient_evidence' ? '已输出研究记录暂不足以判断稳定性' : '已输出方向的研究结果';
+  text('quality-status', `${qualityStatus}。${quality?.note || '准确率待持续验证；下方结果仅作回顾，不决定下一次方向。'}`);
+  text('quality-details', quality ? `已完成输出样本 ${Number.isFinite(quality.test_samples) ? quality.test_samples : '未知'}，累计命中率 ${percent(quality.test_win_rate_pct)}。统计包括策略已输出方向的全部完整已结算研究参考记录，缺失或未到期另列；这是多笔结果的累计比例，不是某一笔的成功概率，也不是未经输出的原始候选统计。` : '等待策略实际输出方向的完整已结算研究记录。回顾命中率不作为下一次方向的准入门槛，实际订单结果须另行核算。');
   text('price', price(data.reference_price)); text('signal-time', time(data.signal_time));
   text('reference-entry', time(data.reference_entry_time));
   text('reference-expiry', time(data.reference_expiry_time));
@@ -87,11 +77,11 @@ function render(data) {
   text('diagnostics', d ? `本次：${d.candles}根K线，策略满足${d.qualified_minutes}分钟。逐项未通过次数：${Object.entries(d.failed_rule_counts || {}).map(([k,v])=>`${k}=${v}`).join('；')}。触发分钟不等于推送次数。` : '');
   const b = data.price_kind === 'index' && !data.demo ? data.reference_study?.holdout : null;
   if (b) {
-    $('stats').replaceChildren(tile('已完成研究样本', b.total), tile('研究累计命中率（含平价样本）', b.total ? (100*b.wins/b.total).toFixed(2)+'%' : '无样本'), tile('平价', b.ties), tile('未验证（不计胜负）', b.unverified), tile('假设净盈亏', b.profit_units+' 单位'));
+    $('stats').replaceChildren(tile('已输出方向的完整参考样本', b.total), tile('研究累计命中率（含平价样本）', b.total ? (100*b.wins/b.total).toFixed(2)+'%' : '无样本'), tile('平价', b.ties), tile('未验证（不计胜负）', b.unverified), tile('假设净盈亏', b.profit_units+' 单位'));
     text('range', `${time(b.from_time)} — ${time(b.to_time)}。研究胜 ${b.wins} / 亏 ${b.losses} / 平 ${b.ties}。不是你的实际订单胜率。`);
-    text('gate', '单点研究仅用于评估固定时程，不保证未来收益，也不会作为已验证胜率写入通知。');
+    text('gate', '这些是策略按当时行情输出方向后的固定时程参考记录；累计命中率只回顾完整已结算输出，不作为下一次方向的准入条件，也不代表实单结果。');
     const early = data.reference_study.early;
-    text('early', early ? `前段研究样本 ${early.total}；两段都只是历史研究，不能代替冻结规则后的独立验收。仅展示当前策略，表内为最近30笔记录。` : '仅展示当前策略，表内为最近30笔记录。');
+    text('early', early ? `前段研究样本 ${early.total}；两段都只是历史研究，不能代替新行情的持续验证。仅展示当前策略，表内为最近30笔记录。` : '仅展示当前策略，表内为最近30笔记录。');
     const rows = [...(b.trades || []), ...(b.unverified_trades || [])].sort((a,b)=>b.signal_time-a.signal_time).slice(0,30);
     $('trades').replaceChildren(...rows.map(trade => {
       const tr = document.createElement('tr');
@@ -102,7 +92,7 @@ function render(data) {
     }));
   } else {
     $('stats').replaceChildren();$('trades').replaceChildren();
-    text('range','尚无当前策略的指数单点研究数据。');
+    text('range','尚无策略输出方向的指数单点参考记录。');
     text('gate','实际合约胜率须使用对应订单开仓和到期单点；缺失时显示无数据。');text('early','');
   }
   const values = data.chart.map(c => c.price);

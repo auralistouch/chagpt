@@ -23,7 +23,7 @@ def observation(**overrides):
                 freshness_limit_seconds=60, price_kind='index', quote_age_seconds=1,
                 source='币安 BTCUSDT 指数', pair='BTC / USDT', reference_price=70000,
                 policy=POLICY, strategy_version=VERSION,
-                research_validation={'passed': True, 'target_pct': 65},
+                research_mode=True, quality_assessment={'status':'research_only','note':'历史统计仅供展示'},
                 blocker_codes=[], blockers=[], **overrides)
 
 
@@ -79,14 +79,17 @@ class LatestPhoneTests(unittest.TestCase):
         self.assertEqual(json.loads(self.path.read_text()), {**saved, 'policy': POLICY})
         self.assertEqual(monitor.state['last_signal_time'], 42)
 
-    def test_v4_upgrade_preserves_real_previous_policy_and_credentials(self):
-        saved=self.old_settings(policy='latest_v4',mode='live',last_signal_time=STAMP)
-        monitor=LatestPhoneMonitor(self.path,self.reporter,self.sender)
-        self.assertEqual(json.loads(self.path.read_text()),{**saved,'policy':POLICY})
-        self.assertTrue(monitor.status()['configured'])
-        self.assertTrue(monitor.status()['enabled'])
-        monitor.check_once()
-        self.sender.assert_not_called()  # A version upgrade does not reset dedup.
+    def test_v4_and_v5_upgrades_preserve_credentials_unknown_fields_and_cooldown(self):
+        for old_policy in ('latest_v4','latest_v5'):
+            with self.subTest(policy=old_policy):
+                saved=self.old_settings(policy=old_policy,mode='live',last_signal_time=STAMP)
+                monitor=LatestPhoneMonitor(self.path,self.reporter,self.sender)
+                self.assertEqual(json.loads(self.path.read_text()),{**saved,'policy':POLICY})
+                self.assertTrue(monitor.status()['configured'])
+                self.assertTrue(monitor.status()['enabled'])
+                self.assertEqual(monitor.state['future_field'], {'preserve':True})
+                monitor.check_once()
+                self.sender.assert_not_called()  # Upgrades preserve dedup.
 
     def test_failed_atomic_migration_disables_and_retains_original_file(self):
         saved = self.old_settings(mode='live')
@@ -117,7 +120,7 @@ class LatestPhoneTests(unittest.TestCase):
         self.assertEqual(self.path.read_text(), '{invalid json')
 
     def test_old_tab_cannot_save_an_older_or_missing_policy(self):
-        for policy in ('strict', 'candidate', 'trend_v2', 'pullback_v3', 'latest_v4', None):
+        for policy in ('strict', 'candidate', 'trend_v2', 'pullback_v3', 'latest_v4', 'latest_v5', None):
             values = dict(key=KEY, enabled=True)
             if policy is not None:
                 values['policy'] = policy
@@ -137,14 +140,16 @@ class LatestPhoneTests(unittest.TestCase):
         restored.check_once()
         self.sender.assert_called_once()
 
-    def test_version_and_exact_true_validation_are_required(self):
+    def test_latest_version_and_exact_research_mode_are_required(self):
         self.configure()
         for overrides, code in [
             ({'policy': 'pullback_v3'}, 'latest_policy_mismatch'),
-            ({'strategy_version': 'pullback_v3.0'}, 'latest_version_mismatch'),
-            ({'research_validation': {'passed': False}}, 'latest_validation_required'),
-            ({'research_validation': {'passed': 1}}, 'latest_validation_required'),
-            ({'research_validation': None}, 'latest_validation_required'),
+            ({'policy': 'latest_v5'}, 'latest_policy_mismatch'),
+            ({'strategy_version': 'activity_v5.0'}, 'latest_version_mismatch'),
+            ({'research_mode': False}, 'latest_research_mode_required'),
+            ({'research_mode': 1}, 'latest_research_mode_required'),
+            ({'research_mode': 'true'}, 'latest_research_mode_required'),
+            ({'research_mode': None}, 'latest_research_mode_required'),
         ]:
             self.reporter.return_value = {**observation(), **overrides}
             with self.subTest(overrides=overrides):
@@ -153,7 +158,17 @@ class LatestPhoneTests(unittest.TestCase):
                 self.assertIn(code, self.monitor.status()['last_diagnostics']['blocker_codes'])
         self.sender.assert_not_called()
         self.assertEqual(self.monitor.state['last_signal_time'], 0)
-        self.assertIn('65%', self.monitor.status()['message'])
+        self.assertIn('研究模式', self.monitor.status()['message'])
+
+    def test_old_history_passed_flag_cannot_replace_explicit_research_mode(self):
+        self.configure()
+        fixture=observation()
+        fixture.pop('research_mode')
+        fixture['research_validation']={'passed':True}
+        self.reporter.return_value=fixture
+        self.monitor.check_once()
+        self.sender.assert_not_called()
+        self.assertNotIn('research_validation',self.monitor.status())
 
     def test_missing_version_metadata_also_blocks(self):
         self.configure()
@@ -163,32 +178,39 @@ class LatestPhoneTests(unittest.TestCase):
         self.monitor.check_once()
         self.sender.assert_not_called()
 
-    def test_research_opt_in_can_send_below_aggregate_target(self):
+    def test_research_signal_sends_without_a_historical_win_rate_gate(self):
         self.configure()
-        self.reporter.return_value={**observation(),'research_mode':True,
-                                    'research_validation':{'passed':False,'observed_pct':54.3}}
+        self.reporter.return_value={**observation(),
+                                    'quality_assessment':{'status':'research_only','test_win_rate_pct':56.07,'test_samples':107},
+                                    'research_validation':{'passed':False,'observed_pct':0}}
         self.monitor.check_once()
         self.sender.assert_called_once()
-        self.assertIn('尚未证明65%累计命中率',self.sender.call_args.args[2])
-        self.assertNotIn('通过既定研究门槛',self.sender.call_args.args[2])
+        body=self.sender.call_args.args[2]
+        self.assertIn('多周期指数共识研究，准确率待持续验证',body)
+        self.assertNotIn('65%',body)
+        self.assertNotIn('通过既定研究门槛',body)
         activity=self.monitor.status()['signal_activity_12h']
         self.assertEqual(activity['signal_attempts'],1)
         self.assertEqual(activity['accepted'],1)
+        for field in ('target','gap','accepted_gap'):
+            self.assertNotIn(field,activity)
+        self.assertNotIn('research_validation',self.monitor.status())
         self.monitor.test()
         self.assertEqual(self.monitor.status()['signal_activity_12h']['signal_attempts'],1)
 
-    def test_research_flag_must_be_exact_boolean_and_version_still_matches(self):
+    def test_missing_or_failed_quality_summary_does_not_block_live_signal(self):
         self.configure()
-        for changes in ({'research_mode':1},{'research_mode':'true'},
-                        {'research_mode':True,'strategy_version':'reversion_v4.0'},
-                        {'research_mode':True,'policy':'latest_v4'}):
-            self.reporter.return_value={**observation(),'research_validation':{'passed':False},**changes}
+        cases=(None,{}, {'passed':False,'allow_alerts':False}, {'passed':1})
+        for index,quality in enumerate(cases):
+            fixture={**observation(),'signal_time':STAMP+index*601000,'quality_assessment':quality}
+            if index==0:fixture.pop('quality_assessment')
+            self.reporter.return_value=fixture
             self.monitor.check_once()
-        self.sender.assert_not_called()
+        self.assertEqual(self.sender.call_count,len(cases))
 
     def test_auxiliary_storage_failure_does_not_reclassify_accepted_push(self):
         self.configure()
-        self.reporter.return_value={**observation(),'research_mode':True,'research_validation':{'passed':False}}
+        self.reporter.return_value={**observation(),'research_mode':True,'quality_assessment':None}
         with patch.object(self.monitor._activity,'record',side_effect=OSError('disk full')):
             self.monitor.check_once()
         self.sender.assert_called_once()
@@ -207,7 +229,7 @@ class LatestPhoneTests(unittest.TestCase):
 
     def test_test_push_works_while_waiting_or_disabled_without_using_cooldown(self):
         self.configure(enabled=False)
-        self.reporter.return_value = {**observation(), 'research_validation': {'passed': False}}
+        self.reporter.return_value = {**observation(), 'quality_assessment': None}
         self.monitor.test()
         self.assertIn('测试提醒', self.sender.call_args.args[1])
         self.assertEqual(self.monitor.state['last_signal_time'], 0)
@@ -250,7 +272,8 @@ class LatestPhoneTests(unittest.TestCase):
         self.assertEqual(row['message'], '[redacted]')
         self.monitor.check_once()
         status = self.monitor.status()
-        self.assertEqual(status['last_diagnostics']['research_validation']['passed'], True)
+        self.assertEqual(status['last_diagnostics']['quality_assessment']['status'],'research_only')
+        self.assertNotIn('research_validation',status['last_diagnostics'])
         for event in status['recent_events']:
             self.assertEqual(event['policy'], POLICY)
             self.assertEqual(event['strategy_version'], VERSION)
@@ -319,7 +342,7 @@ class LatestHTTPTests(unittest.TestCase):
 
     def test_old_signal_policies_are_rejected_before_reporting(self):
         with patch('app.report') as report:
-            for policy in ('strict', 'candidate', 'trend_v2', 'pullback_v3', 'unknown'):
+            for policy in ('strict', 'candidate', 'trend_v2', 'pullback_v3', 'latest_v4', 'latest_v5', 'unknown'):
                 with self.subTest(policy=policy), self.assertRaises(HTTPError) as error:
                     urlopen(self.url+'/api/signals?policy='+policy, timeout=5)
                 self.assertEqual(error.exception.code, 400)

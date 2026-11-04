@@ -1,4 +1,4 @@
-"""Latest-only local UI tests. Mock quotes/Bark; no real 65% success claim."""
+"""Latest-only local UI tests. Mock quotes/Bark; historical rates never gate direction."""
 import json,shutil,sys,tempfile,threading,unittest
 from pathlib import Path
 from unittest.mock import Mock,patch
@@ -6,21 +6,34 @@ from http.server import ThreadingHTTPServer
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 import app
 from strategy import Candle,MINUTE
-from latest_strategy import analyze_latest,POLICY,VERSION
+from latest_strategy import POLICY,VERSION
 from latest_phone import LatestPhoneMonitor
 from playwright.sync_api import sync_playwright,expect
 
+def observation(action='WAIT'):
+    stamp=1_793_800_000_000
+    reference=dict(total=107,wins=60,losses=47,ties=0,unverified=0,profit_units=1,
+                   from_time=stamp-86400000,to_time=stamp,trades=[],unverified_trades=[])
+    return dict(policy=POLICY,strategy_version=VERSION,research_mode=True,action=action,
+                demo=False,price_kind='index',source='币安 BTCUSDT 指数',pair='BTC / USDT',quote='USDT',
+                signal_time=stamp,reference_price=78000,reference_entry_time=stamp+MINUTE,
+                reference_expiry_time=stamp+11*MINUTE,estimated_expiry=stamp+600000,
+                data_age_seconds=1,quote_age_seconds=1,freshness_limit_seconds=60,
+                setup='双模型行情同向',metrics=dict(score=2,checks=[],reasons=[],qualified=action!='WAIT'),
+                display_metrics=[],blocker_codes=[],blockers=[],warnings=[],
+                quality_assessment=dict(status='research_only',note='方向来自当前行情，累计结果只作回顾。',
+                                        test_samples=107,test_win_rate_pct=56.07),
+                reference_study=dict(early=None,holdout=reference),
+                chart=[dict(time=stamp-MINUTE,price=77990),dict(time=stamp,price=78000)])
+
+
 class LatestBrowserTests(unittest.TestCase):
     def test_latest_only_waits_and_bark_test_still_works(self):
-        candles=[Candle(i*MINUTE,100,101,99,100,0) for i in range(300)]
-        now=300*MINUTE;quote=dict(price=100,time=now)
-        data=analyze_latest(candles,now,price_kind='index',quote=quote)
-        data.update(source='币安 BTCUSDT 指数',pair='BTC / USDT',quote='USDT')
-        data['research_mode']=False
+        data=observation()
         with tempfile.TemporaryDirectory() as folder,patch('app.report',return_value=data):
             app.CACHE.clear();sender=Mock();reporter=Mock(return_value=data)
             path=Path(folder)/'phone.json'
-            path.write_text(json.dumps(dict(key='fake-local-browser-key',enabled=True,mode='live',payout=.8,policy='pullback_v3',last_signal_time=0,extra='preserve')))
+            path.write_text(json.dumps(dict(key='fake-local-browser-key',enabled=True,mode='live',payout=.8,policy='latest_v5',last_signal_time=0,extra='preserve')))
             monitor=LatestPhoneMonitor(path,reporter,sender)
             server=ThreadingHTTPServer(('127.0.0.1',0),app.Handler);server.phone_monitor=monitor
             thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
@@ -36,10 +49,12 @@ class LatestBrowserTests(unittest.TestCase):
                     self.assertEqual(page.locator('select#policy').count(),0)
                     page.click('#refresh')
                     expect(page.locator('#action')).to_contain_text('等待')
-                    expect(page.locator('#validation-status')).to_contain_text('等待')
+                    expect(page.locator('#quality-details')).to_contain_text('56.07%')
+                    self.assertEqual(page.locator('#validation-status').count(),0)
+                    self.assertEqual(page.locator('#frequency-status').count(),0)
                     self.assertEqual(page.evaluate('notices.length'),0)
                     body=page.locator('body').inner_text()
-                    for old in ('v2','v3','旧版','pullback_v3','trend_v2','严格统计过滤'):self.assertNotIn(old,body)
+                    for old in ('v2','v3','v4','v5','旧版','pullback_v3','trend_v2','严格统计过滤','65%','最近100笔','目标约20次'):self.assertNotIn(old,body)
                     self.assertIn(VERSION,body)
                     monitor.check_once();sender.assert_not_called()
                     header='order_id,direction,open_time_ms,expiry_time_ms,open_index,close_index,net_payout,stake\n'
@@ -56,7 +71,7 @@ class LatestBrowserTests(unittest.TestCase):
                     self.assertEqual(saved.value.status,200)
                     expect(page.locator('#phone-status')).to_contain_text('手机监测已启用')
                     self.assertEqual(json.loads(path.read_text())['extra'],'preserve')
-                    response=page.request.get(f'http://127.0.0.1:{server.server_port}/api/signals?policy=trend_v2')
+                    response=page.request.get(f'http://127.0.0.1:{server.server_port}/api/signals?policy=latest_v5')
                     self.assertEqual(response.status,400)
                     page.set_viewport_size(dict(width=390,height=844))
                     self.assertTrue(page.evaluate('document.documentElement.scrollWidth<=innerWidth'))
@@ -65,23 +80,13 @@ class LatestBrowserTests(unittest.TestCase):
             finally:
                 server.shutdown();server.server_close();thread.join();app.CACHE.clear()
 
-    def test_research_alerts_show_frequency_and_keep_source_freshness_version_guards(self):
-        candles=[Candle(i*MINUTE,100,101,99,100,0) for i in range(300)]
-        now=300*MINUTE
-        data=analyze_latest(candles,now,price_kind='index',quote=dict(price=100,time=now))
-        data.update(policy=POLICY,strategy_version=VERSION,research_mode=True,action='UP',
-                    source='币安 BTCUSDT 指数',pair='BTC / USDT',quote='USDT',
-                    data_age_seconds=1,quote_age_seconds=1,freshness_limit_seconds=60,
-                    frequency_research=dict(window_hours=12,target=20,complete_window_count=100,
-                        minimum=3,median=22,average=20.15,maximum=40,windows_at_target_pct=70.22,
-                        all_windows_met=False,enough_data=True))
-        data['research_validation'].update(passed=False,total=40,wins=21,losses=19,ties=0,
-                    observed_pct=52.5,reason='模拟研究未达到65%，仅测试通知逻辑')
+    def test_current_market_alerts_ignore_historical_rate_and_keep_original_guards(self):
+        data=observation('UP')
         phone=dict(configured=True,enabled=True,available=True,mode='live',payout=.8,
                    policy=POLICY,strategy_version=VERSION,research_mode=True,message='研究模式',
-                   signal_activity_12h=dict(window_hours=12,target=20,candidate_count=24,
-                       signal_attempts=18,accepted=17,rejected=0,unknown=1,gap=2,
-                       accepted_gap=3,observation_start_ms=0,full_window=True,
+                   signal_activity_12h=dict(window_hours=12,candidate_count=24,
+                       signal_attempts=18,accepted=17,rejected=0,unknown=1,
+                       observation_start_ms=0,full_window=True,
                        tracking_complete=False,note='服务接受不证明手机展示。'))
         server=ThreadingHTTPServer(('127.0.0.1',0),app.Handler)
         thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
@@ -96,36 +101,47 @@ class LatestBrowserTests(unittest.TestCase):
                 page.route('**/api/phone',lambda route:route.fulfill(content_type='application/json',body=json.dumps(phone)))
                 page.goto(f'http://127.0.0.1:{server.server_port}')
                 expect(page.locator('#phone-activity')).to_contain_text('研究方向发送尝试 18 次')
-                expect(page.locator('#phone-activity')).to_contain_text('还差 2 次')
+                expect(page.locator('#phone-activity')).to_contain_text('Bark接受 17 次')
+                self.assertNotIn('还差',page.locator('#phone-activity').inner_text())
                 expect(page.locator('#phone-activity-coverage')).to_contain_text('记录不完整')
                 page.click('#refresh')
                 expect(page.locator('#action')).to_contain_text('看涨研究信号')
-                expect(page.locator('#validation-status')).to_contain_text('未验证65%')
-                expect(page.locator('#frequency-status')).to_contain_text('平均 20.15 次，最少 3 次')
-                expect(page.locator('#frequency-details')).to_contain_text('70.22%')
+                expect(page.locator('#quality-details')).to_contain_text('已完成输出样本 107')
+                expect(page.locator('#quality-details')).to_contain_text('56.07%')
+                expect(page.locator('#stats')).to_contain_text('56.07%')
+                self.assertEqual(page.locator('#validation-status').count(),0)
+                self.assertEqual(page.locator('#frequency-status').count(),0)
                 self.assertEqual(page.evaluate('notices.length'),1)
-                self.assertIn('未验证65%',page.evaluate('notices[0].title'))
-                self.assertNotIn('通过验收',page.evaluate('notices[0].body'))
-                # Repeated refreshes and every original real-market guard still
-                # suppress alerts even when research mode is explicitly true.
+                self.assertIn('研究方向',page.evaluate('notices[0].title'))
+                self.assertIn('准确率待持续验证',page.evaluate('notices[0].body'))
+                self.assertNotIn('65%',page.evaluate('notices[0].body'))
+                # Same-minute rechecks remain deduplicated. Historical outcome
+                # fields never authorize a wrong source, version, or stale quote.
                 page.evaluate('(data)=>window.signalAlerts.maybeNotify(data)',data)
-                for changes in (dict(policy='other'),dict(strategy_version='other'),
+                for changes in (dict(policy='latest_v5'),dict(strategy_version='activity_v5.0'),
                                 dict(price_kind='spot'),dict(demo=True),
                                 dict(data_age_seconds=60),dict(quote_age_seconds=15),
-                                dict(research_mode=False),dict(research_mode='true')):
+                                dict(research_mode=False),dict(research_mode='true'),dict(research_mode=1)):
                     sample={**data,'signal_time':data['signal_time']+601000,**changes}
                     page.evaluate('(data)=>window.signalAlerts.maybeNotify(data)',sample)
                 self.assertEqual(page.evaluate('notices.length'),1)
-                # A distinct, fresh research observation can notify without a
-                # fabricated passed flag or statistical success claim.
+                # Missing retrospective assessment is not an entry restriction.
                 sample={**data,'signal_time':data['signal_time']+601000,'action':'DOWN'}
+                sample.pop('quality_assessment')
+                page.evaluate('(data)=>render(data)',sample)
+                expect(page.locator('#action')).to_contain_text('看跌研究信号')
                 page.evaluate('(data)=>window.signalAlerts.maybeNotify(data)',sample)
                 self.assertEqual(page.evaluate('notices.length'),2)
-                self.assertIn('看跌',page.evaluate('notices[1].title'))
-                # An incomplete research window must never appear as achieved.
-                sample['frequency_research']=dict(enough_data=False,complete_window_count=0)
+                # Even an observed zero percent does not become an invented
+                # historical-rate gate for a new current-market observation.
+                sample={**sample,'signal_time':sample['signal_time']+601000,'action':'UP',
+                        'quality_assessment':dict(status='research_only',note='模拟零命中回顾，仅测试无历史准入。',
+                                                  test_samples=3,test_win_rate_pct=0)}
                 page.evaluate('(data)=>render(data)',sample)
-                expect(page.locator('#frequency-status')).to_contain_text('尚无完整12小时')
+                expect(page.locator('#action')).to_contain_text('看涨研究信号')
+                expect(page.locator('#quality-details')).to_contain_text('累计命中率 0%')
+                page.evaluate('(data)=>window.signalAlerts.maybeNotify(data)',sample)
+                self.assertEqual(page.evaluate('notices.length'),3)
                 self.assertEqual(errors,[]);browser.close()
         finally:
             server.shutdown();server.server_close();thread.join()

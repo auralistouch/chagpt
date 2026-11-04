@@ -223,7 +223,7 @@ class EvidenceAppTests(unittest.TestCase):
              patch('app.fetch_index_candles', return_value=(fresh, now)), \
              patch('app.fetch_index_quote', side_effect=lambda: order.append('quote') or {'price': 100, 'time': now}), \
              patch('app.analyze_latest', return_value={'warnings': []}) as analyze:
-            result = app.report('live', .8, 'latest_v5')
+            result = app.report('live', .8, 'latest_v6')
         self.assertEqual(order, ['merge', 'quote'])
         self.assertIs(analyze.call_args.args[0], merged)
         self.assertIs(result['evidence_history'], diagnostic)
@@ -237,7 +237,7 @@ class EvidenceAppTests(unittest.TestCase):
         with patch.object(app, 'EVIDENCE_HISTORY', store), \
              patch('app.demo_candles', return_value=(data, now)), \
              patch('app.analyze_latest', return_value={}):
-            app.report('demo', .8, 'latest_v5')
+            app.report('demo', .8, 'latest_v6')
         with patch.object(app, 'EVIDENCE_HISTORY', store), \
              patch('app.fetch_index_candles', return_value=(data, now)), \
              patch('app.fetch_index_quote', return_value={'price': 100, 'time': now}), \

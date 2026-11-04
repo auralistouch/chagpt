@@ -34,8 +34,8 @@ class RollingActivityTests(unittest.TestCase):
         activity.record(row('push_result', stamp=NOW - 180_000, kind='signal', result='unknown'))
         status = activity.status()
         self.assertEqual((status['candidate_count'], status['signal_attempts'], status['accepted'], status['rejected'], status['unknown']), (1, 1, 1, 1, 1))
-        self.assertEqual(status['gap'], 19)
-        self.assertEqual(status['accepted_gap'], 19)
+        for field in ('target','gap','accepted_gap'):
+            self.assertNotIn(field,status)
         self.assertIn('不等于手机已展示', status['note'])
 
     def test_duplicates_do_not_refresh_or_inflate_counts(self):
@@ -64,7 +64,6 @@ class RollingActivityTests(unittest.TestCase):
         activity = RollingActivity(self.directory)
         self.assertFalse(activity.status()['full_window'])
         self.assertTrue(activity.status()['tracking_complete'])
-        self.assertEqual(activity.status()['gap'], 20)
         self.assertTrue(activity.status(NOW + WINDOW_MS)['full_window'])
 
     def test_test_notifications_unqualified_and_other_policies_are_excluded(self):
@@ -73,9 +72,10 @@ class RollingActivityTests(unittest.TestCase):
             activity.record(row(event, kind='test', result='accepted'))
         for qualified in (False, 1, 'true'):
             activity.record(row('check_result', metrics={'qualified': qualified}))
-        other = row('push_attempt', kind='signal')
-        other['policy'] = 'latest_v4'
-        activity.record(other)
+        for old_policy in ('latest_v4','latest_v5'):
+            other = row('push_attempt', kind='signal')
+            other['policy'] = old_policy
+            activity.record(other)
         self.assertEqual(activity.status()['candidate_count'], 0)
         self.assertEqual(activity.status()['signal_attempts'], 0)
         self.assertEqual(activity.status()['accepted'], 0)
@@ -146,7 +146,6 @@ class RollingActivityTests(unittest.TestCase):
             self.assertFalse(status['tracking_complete'])
             self.assertFalse(status['full_window'])
             self.assertEqual(status['signal_attempts'], 0)
-            self.assertEqual(status['gap'], 20)
 
     def test_corrupt_or_torn_journal_cannot_claim_complete_coverage(self):
         (self.directory / 'monitor.jsonl').write_text(json.dumps(row('check_started', at=NOW - WINDOW_MS - 1)) + '\n{"time":')
@@ -194,13 +193,15 @@ class RollingActivityTests(unittest.TestCase):
         self.assertEqual(restarted.status()['accepted'], 1)
         self.assertFalse(restarted.status()['tracking_complete'])
 
-    def test_count_gaps_never_become_negative(self):
+    def test_more_than_twenty_events_keep_counts_without_a_quota(self):
         activity = RollingActivity(self.directory)
         for index in range(21):
             activity.record(row('push_attempt', stamp=index, kind='signal'))
             activity.record(row('push_result', stamp=index, kind='signal', result='accepted'))
-        self.assertEqual(activity.status()['gap'], 0)
-        self.assertEqual(activity.status()['accepted_gap'], 0)
+        self.assertEqual(activity.status()['signal_attempts'],21)
+        self.assertEqual(activity.status()['accepted'],21)
+        for field in ('target','gap','accepted_gap'):
+            self.assertNotIn(field,activity.status())
 
     def test_event_retention_is_bounded_and_loss_is_disclosed(self):
         with patch('rolling_activity.MAX_SAMPLES', 2):

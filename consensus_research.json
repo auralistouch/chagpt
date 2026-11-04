@@ -1,0 +1,493 @@
+{
+  "protocol_extension": "protocol.md#one-additional-hypothesis-requested-after-first-results",
+  "prior_data_exposure": true,
+  "independent_validation": false,
+  "calibration_choices": [
+    {
+      "quantile": 0.9,
+      "thresholds": {
+        "hgb": 0.06051357114086948,
+        "extra_trees": 0.04905222408532615
+      },
+      "calibration": {
+        "total": 131,
+        "wins": 77,
+        "losses": 54,
+        "ties": 0,
+        "profit_units": 7.6,
+        "unverified": 1,
+        "from_time": 1792485180000,
+        "to_time": 1792917120000,
+        "aggregate_pct": 58.7786,
+        "wilson_lower_pct": 50.2164,
+        "by_direction": {
+          "UP": {
+            "total": 33,
+            "wins": 19
+          },
+          "DOWN": {
+            "total": 98,
+            "wins": 58
+          }
+        }
+      },
+      "calibration_halves": [
+        {
+          "total": 62,
+          "wins": 33,
+          "losses": 29,
+          "ties": 0,
+          "profit_units": -2.6,
+          "unverified": 0,
+          "from_time": 1792485180000,
+          "to_time": 1792701120000,
+          "aggregate_pct": 53.2258,
+          "wilson_lower_pct": 40.9838,
+          "by_direction": {
+            "UP": {
+              "total": 11,
+              "wins": 7
+            },
+            "DOWN": {
+              "total": 51,
+              "wins": 26
+            }
+          }
+        },
+        {
+          "total": 69,
+          "wins": 44,
+          "losses": 25,
+          "ties": 0,
+          "profit_units": 10.2,
+          "unverified": 1,
+          "from_time": 1792701180000,
+          "to_time": 1792917120000,
+          "aggregate_pct": 63.7681,
+          "wilson_lower_pct": 51.9796,
+          "by_direction": {
+            "UP": {
+              "total": 22,
+              "wins": 12
+            },
+            "DOWN": {
+              "total": 47,
+              "wins": 32
+            }
+          }
+        }
+      ],
+      "eligible": true
+    },
+    {
+      "quantile": 0.95,
+      "thresholds": {
+        "hgb": 0.06943230042250892,
+        "extra_trees": 0.05518742232346259
+      },
+      "calibration": {
+        "total": 58,
+        "wins": 40,
+        "losses": 18,
+        "ties": 0,
+        "profit_units": 14.0,
+        "unverified": 1,
+        "from_time": 1792485180000,
+        "to_time": 1792917120000,
+        "aggregate_pct": 68.9655,
+        "wilson_lower_pct": 56.1967,
+        "by_direction": {
+          "UP": {
+            "total": 25,
+            "wins": 17
+          },
+          "DOWN": {
+            "total": 33,
+            "wins": 23
+          }
+        }
+      },
+      "calibration_halves": [
+        {
+          "total": 26,
+          "wins": 17,
+          "losses": 9,
+          "ties": 0,
+          "profit_units": 4.6,
+          "unverified": 0,
+          "from_time": 1792485180000,
+          "to_time": 1792701120000,
+          "aggregate_pct": 65.3846,
+          "wilson_lower_pct": 46.2202,
+          "by_direction": {
+            "UP": {
+              "total": 9,
+              "wins": 7
+            },
+            "DOWN": {
+              "total": 17,
+              "wins": 10
+            }
+          }
+        },
+        {
+          "total": 32,
+          "wins": 23,
+          "losses": 9,
+          "ties": 0,
+          "profit_units": 9.4,
+          "unverified": 1,
+          "from_time": 1792701180000,
+          "to_time": 1792917120000,
+          "aggregate_pct": 71.875,
+          "wilson_lower_pct": 54.6252,
+          "by_direction": {
+            "UP": {
+              "total": 16,
+              "wins": 10
+            },
+            "DOWN": {
+              "total": 16,
+              "wins": 13
+            }
+          }
+        }
+      ],
+      "eligible": true
+    },
+    {
+      "quantile": 0.98,
+      "thresholds": {
+        "hgb": 0.08653147126309416,
+        "extra_trees": 0.06423020086437393
+      },
+      "calibration": {
+        "total": 19,
+        "wins": 10,
+        "losses": 9,
+        "ties": 0,
+        "profit_units": -1.0,
+        "unverified": 1,
+        "from_time": 1792485180000,
+        "to_time": 1792917120000,
+        "aggregate_pct": 52.6316,
+        "wilson_lower_pct": 31.7075,
+        "by_direction": {
+          "UP": {
+            "total": 19,
+            "wins": 10
+          },
+          "DOWN": {
+            "total": 0,
+            "wins": 0
+          }
+        }
+      },
+      "calibration_halves": [
+        {
+          "total": 7,
+          "wins": 5,
+          "losses": 2,
+          "ties": 0,
+          "profit_units": 2.0,
+          "unverified": 0,
+          "from_time": 1792485180000,
+          "to_time": 1792701120000,
+          "aggregate_pct": 71.4286,
+          "wilson_lower_pct": 35.8929,
+          "by_direction": {
+            "UP": {
+              "total": 7,
+              "wins": 5
+            },
+            "DOWN": {
+              "total": 0,
+              "wins": 0
+            }
+          }
+        },
+        {
+          "total": 12,
+          "wins": 5,
+          "losses": 7,
+          "ties": 0,
+          "profit_units": -3.0,
+          "unverified": 1,
+          "from_time": 1792701180000,
+          "to_time": 1792917120000,
+          "aggregate_pct": 41.6667,
+          "wilson_lower_pct": 19.3257,
+          "by_direction": {
+            "UP": {
+              "total": 12,
+              "wins": 5
+            },
+            "DOWN": {
+              "total": 0,
+              "wins": 0
+            }
+          }
+        }
+      ],
+      "eligible": false
+    }
+  ],
+  "selection": {
+    "quantile": 0.95,
+    "thresholds": {
+      "hgb": 0.06943230042250892,
+      "extra_trees": 0.05518742232346259
+    },
+    "calibration": {
+      "total": 58,
+      "wins": 40,
+      "losses": 18,
+      "ties": 0,
+      "profit_units": 14.0,
+      "unverified": 1,
+      "from_time": 1792485180000,
+      "to_time": 1792917120000,
+      "aggregate_pct": 68.9655,
+      "wilson_lower_pct": 56.1967,
+      "by_direction": {
+        "UP": {
+          "total": 25,
+          "wins": 17
+        },
+        "DOWN": {
+          "total": 33,
+          "wins": 23
+        }
+      }
+    },
+    "calibration_halves": [
+      {
+        "total": 26,
+        "wins": 17,
+        "losses": 9,
+        "ties": 0,
+        "profit_units": 4.6,
+        "unverified": 0,
+        "from_time": 1792485180000,
+        "to_time": 1792701120000,
+        "aggregate_pct": 65.3846,
+        "wilson_lower_pct": 46.2202,
+        "by_direction": {
+          "UP": {
+            "total": 9,
+            "wins": 7
+          },
+          "DOWN": {
+            "total": 17,
+            "wins": 10
+          }
+        }
+      },
+      {
+        "total": 32,
+        "wins": 23,
+        "losses": 9,
+        "ties": 0,
+        "profit_units": 9.4,
+        "unverified": 1,
+        "from_time": 1792701180000,
+        "to_time": 1792917120000,
+        "aggregate_pct": 71.875,
+        "wilson_lower_pct": 54.6252,
+        "by_direction": {
+          "UP": {
+            "total": 16,
+            "wins": 10
+          },
+          "DOWN": {
+            "total": 16,
+            "wins": 13
+          }
+        }
+      }
+    ],
+    "eligible": true
+  },
+  "test": {
+    "total": 107,
+    "wins": 60,
+    "losses": 47,
+    "ties": 0,
+    "profit_units": 1.0,
+    "unverified": 0,
+    "from_time": 1792917180000,
+    "to_time": 1793781120000,
+    "aggregate_pct": 56.0748,
+    "wilson_lower_pct": 46.6224,
+    "by_direction": {
+      "UP": {
+        "total": 66,
+        "wins": 39
+      },
+      "DOWN": {
+        "total": 41,
+        "wins": 21
+      }
+    }
+  },
+  "test_halves": [
+    {
+      "total": 46,
+      "wins": 25,
+      "losses": 21,
+      "ties": 0,
+      "profit_units": -1.0,
+      "unverified": 0,
+      "from_time": 1792917180000,
+      "to_time": 1793349120000,
+      "aggregate_pct": 54.3478,
+      "wilson_lower_pct": 40.1799,
+      "by_direction": {
+        "UP": {
+          "total": 27,
+          "wins": 17
+        },
+        "DOWN": {
+          "total": 19,
+          "wins": 8
+        }
+      }
+    },
+    {
+      "total": 61,
+      "wins": 35,
+      "losses": 26,
+      "ties": 0,
+      "profit_units": 2.0,
+      "unverified": 0,
+      "from_time": 1793349180000,
+      "to_time": 1793781120000,
+      "aggregate_pct": 57.377,
+      "wilson_lower_pct": 44.895,
+      "by_direction": {
+        "UP": {
+          "total": 39,
+          "wins": 22
+        },
+        "DOWN": {
+          "total": 22,
+          "wins": 13
+        }
+      }
+    }
+  ],
+  "test_quarters": [
+    {
+      "total": 18,
+      "wins": 15,
+      "losses": 3,
+      "ties": 0,
+      "profit_units": 9.0,
+      "unverified": 0,
+      "from_time": 1792917180000,
+      "to_time": 1793133120000,
+      "aggregate_pct": 83.3333,
+      "wilson_lower_pct": 60.7775,
+      "by_direction": {
+        "UP": {
+          "total": 10,
+          "wins": 10
+        },
+        "DOWN": {
+          "total": 8,
+          "wins": 5
+        }
+      }
+    },
+    {
+      "total": 28,
+      "wins": 10,
+      "losses": 18,
+      "ties": 0,
+      "profit_units": -10.0,
+      "unverified": 0,
+      "from_time": 1793133180000,
+      "to_time": 1793349120000,
+      "aggregate_pct": 35.7143,
+      "wilson_lower_pct": 20.7056,
+      "by_direction": {
+        "UP": {
+          "total": 17,
+          "wins": 7
+        },
+        "DOWN": {
+          "total": 11,
+          "wins": 3
+        }
+      }
+    },
+    {
+      "total": 33,
+      "wins": 19,
+      "losses": 14,
+      "ties": 0,
+      "profit_units": 1.2,
+      "unverified": 0,
+      "from_time": 1793349180000,
+      "to_time": 1793565120000,
+      "aggregate_pct": 57.5758,
+      "wilson_lower_pct": 40.807,
+      "by_direction": {
+        "UP": {
+          "total": 22,
+          "wins": 12
+        },
+        "DOWN": {
+          "total": 11,
+          "wins": 7
+        }
+      }
+    },
+    {
+      "total": 28,
+      "wins": 16,
+      "losses": 12,
+      "ties": 0,
+      "profit_units": 0.8,
+      "unverified": 0,
+      "from_time": 1793565180000,
+      "to_time": 1793781120000,
+      "aggregate_pct": 57.1429,
+      "wilson_lower_pct": 39.0705,
+      "by_direction": {
+        "UP": {
+          "total": 17,
+          "wins": 10
+        },
+        "DOWN": {
+          "total": 11,
+          "wins": 6
+        }
+      }
+    }
+  ],
+  "strategy_version": "precision_v6.0",
+  "strategy_name": "多周期指数共识研究",
+  "model_export_verification": {
+    "rows_verified": 43080,
+    "max_absolute_score_errors": {
+      "hgb": 1.6653345369377348e-16,
+      "extra_trees": 7.216449660063518e-16
+    },
+    "signal_flips": 0,
+    "compressed_bundle_characters": 79923,
+    "uncompressed_bytes": 212937,
+    "bundle_sha256": "85e89dc20d6fefe737b4d7bdd15db919ae9a15ba51b62548f8385e604ee9c2d9"
+  },
+  "user_objective": "改善每次选点准确性；无历史胜率或信号次数准入门槛",
+  "comparison": {
+    "previous_atr_last10d": {
+      "total": 407,
+      "wins": 221,
+      "losses": 186,
+      "aggregate_pct": 54.3,
+      "profit_units": -9.2
+    },
+    "improvement_is_independently_verified": false
+  }
+}

@@ -228,7 +228,7 @@ class LiveFetchTests(unittest.TestCase):
              patch.object(app, 'fetch_index_candles', return_value=(seed, CLOCK)) as fetch, \
              patch.object(app, 'fetch_index_quote', return_value={'price': 101, 'time': CLOCK}), \
              patch.object(app, 'analyze_latest', return_value={}):
-            app.report('live', .8, 'latest_v5')
+            app.report('live', .8, 'latest_v6')
         self.assertEqual(fetch.call_args.args[0], seed)
         self.assertIs(fetch.call_args.kwargs['include_spot_volume'], False)
         self.assertEqual(fetch.call_args.kwargs['page_sink'], store.merge)

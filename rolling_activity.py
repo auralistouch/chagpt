@@ -5,11 +5,10 @@ from pathlib import Path
 import tempfile
 import threading
 import time
+from latest_strategy import POLICY
 
 
-POLICY = 'latest_v5'
 WINDOW_MS = 12 * 60 * 60 * 1000
-TARGET = 20
 MAX_SAMPLES = 10_000
 STATE_NAME = 'rolling-activity.json'
 
@@ -249,12 +248,10 @@ class RollingActivity:
             complete = self._incomplete_until_ms is None or current >= self._incomplete_until_ms
             notes = ['候选不等于正式买点推送；accepted 仅代表 Bark 服务接受，不等于手机已展示。']
             if not full:
-                notes.append('连续观察尚未满12小时，当前计数不能证明每12小时达标。')
+                notes.append('连续观察尚未满12小时，当前计数只覆盖已记录时段。')
             if not complete:
-                notes.append('记录缺失、损坏、容量截断或状态保存异常可能导致少计，当前12小时统计不完整；需要恢复连续观察，不能证明达标或承诺无遗漏。')
-            return dict(window_hours=12, target=TARGET, **counts,
-                        gap=max(0, TARGET - counts['signal_attempts']),
-                        accepted_gap=max(0, TARGET - counts['accepted']),
+                notes.append('记录缺失、损坏、容量截断或状态保存异常可能导致少计，当前12小时统计不完整；需要恢复连续观察，不能承诺无遗漏。')
+            return dict(window_hours=12, **counts,
                         observation_start_ms=self.observation_start_ms,
                         full_window=full, tracking_complete=complete,
                         note=' '.join(notes))
