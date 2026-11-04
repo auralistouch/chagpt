@@ -36,7 +36,7 @@ class LatestStrategyTests(unittest.TestCase):
         features=[dict(qualified=True,direction='UP',score=4,checks=[],failed_rules=[],reasons=[],atr=1,atr_pct=1,rsi=30,efficiency_20=.2,close_location=.8,setup='带外回归确认') for _ in data]
         now=data[-1].time+MINUTE
         with patch('latest_strategy.latest_features',return_value=features):
-            result=analyze_latest(data,now,price_kind='index',quote=dict(price=100,time=now))
+            result=analyze_latest(data,now,price_kind='index',quote=dict(price=100,time=now),research_mode=False)
         self.assertEqual(result['action'],'WAIT')
         self.assertEqual(result['research_validation']['total'],0)
         self.assertFalse(result['research_validation']['passed'])
@@ -70,7 +70,29 @@ class LatestStrategyTests(unittest.TestCase):
         flat=[Candle(i*MINUTE,100,100,100,100,0) for i in range(300)]
         self.assertFalse(any(row['qualified'] for row in latest_features(flat)))
 
-    def test_primary_is_fixed_regardless_alternative_scores(self):
+    def test_research_mode_retains_targets_but_does_not_gate_on_unseen_samples(self):
+        data=[Candle(i*MINUTE,100,101,99,100,0) for i in range(300)]
+        features=[dict(qualified=True,direction='UP',score=4,checks=[],failed_rules=[],reasons=[],atr=1,atr_pct=1,rsi=30,efficiency_20=.2,close_location=.8,setup='模拟研究') for _ in data]
+        now=data[-1].time+MINUTE
+        with patch('latest_strategy.latest_features',return_value=features):
+            result=analyze_latest(data,now,price_kind='index',quote=dict(price=100,time=now))
+        self.assertEqual(result['action'],'UP')
+        self.assertTrue(result['research_mode'])
+        self.assertFalse(result['research_validation']['passed'])
+        self.assertEqual(result['research_validation']['total'],0)
+        self.assertFalse(result['frequency_research']['enough_data'])
+        self.assertNotIn('target_not_validated',result['blocker_codes'])
+        self.assertEqual(result['reference_entry_time'],now+MINUTE)
+        self.assertEqual(result['reference_expiry_time']-result['reference_entry_time'],600000)
+
+    def test_latest_is_exact_fixed_atr_candidate_not_the_old_primary(self):
+        from reversion_rules import reversion_features
+        data=[Candle(i*MINUTE,100,101,99,100+.1*math.sin(i),0) for i in range(300)]
+        expected=reversion_features(data,'atr_rejection')
+        self.assertEqual([x['qualified'] for x in latest_features(data)], [x['qualified'] for x in expected])
+        self.assertEqual([x['direction'] for x in latest_features(data)], [x['direction'] for x in expected])
+
+    def test_legacy_primary_is_preserved_only_for_research(self):
         import reversion_rules
         self.assertEqual(reversion_rules.PRIMARY,'band_reentry')
         self.assertEqual(set(reversion_rules.CANDIDATES),{'band_reentry','atr_rejection','failed_breakout'})

@@ -76,7 +76,7 @@ class PhoneMonitor:
                     raise ValueError()
                 if not math.isfinite(saved['payout']) or not .01 <= saved['payout'] <= 2:
                     raise ValueError()
-                if saved.get('policy', 'strict') not in ('strict', 'candidate', 'trend_v2', 'pullback_v3', 'latest_v4'): raise ValueError()
+                if saved.get('policy', 'strict') not in ('strict', 'candidate', 'trend_v2', 'pullback_v3', 'latest_v4', 'latest_v5'): raise ValueError()
                 last = saved.get('last_signal_time', 0)
                 if not isinstance(last, (int, float)) or not math.isfinite(last) or last < 0:
                     raise ValueError()
@@ -122,7 +122,7 @@ class PhoneMonitor:
         if not isinstance(raw, str): raise ValueError('设备密钥格式不正确')
         with self.lock:
             policy = values.get('policy', self.state['policy'])
-            if policy not in ('strict', 'candidate', 'trend_v2', 'pullback_v3', 'latest_v4'): raise ValueError('提醒模式无效')
+            if policy not in ('strict', 'candidate', 'trend_v2', 'pullback_v3', 'latest_v5'): raise ValueError('提醒模式无效')
             candidate = {**self.state, 'enabled': enabled, 'mode': mode, 'payout': payout, 'policy': policy}
             if raw.strip(): candidate['key'] = device_key(raw)
             if enabled and not candidate['key']: raise ValueError('请先在本机网页填写 Bark 推送地址')
@@ -229,9 +229,13 @@ class PhoneMonitor:
                 baseline = datetime.fromtimestamp(stamp/1000).astimezone().isoformat(timespec='seconds')
                 risk_note = '候选提醒：未通过历史统计门槛，尚未验证优势。' if settings['policy'] == 'candidate' else '严格统计过滤提醒，仍不保证结果。'
                 if settings['policy'] in ('trend_v2', 'pullback_v3'): risk_note = f"{data.get('strategy_name', '趋势确认')}信号；未证明盈利优势。"
-                if settings['policy'] == 'latest_v4': risk_note = '最新版均值回归观察信号；通过既定研究门槛，历史表现不保证未来结果。'
+                if settings['policy'] == 'latest_v5': risk_note = '最新版研究方向；尚未证明65%累计命中率或盈利，历史表现不保证未来结果。'
                 trigger_note = f"触发：{data.get('setup', '指标共振')}；参考有效至 {datetime.fromtimestamp(data['valid_until']/1000).astimezone().isoformat(timespec='seconds')}\n" if data.get('valid_until') else ''
                 if data.get('signal_close') is not None: trigger_note += f"信号收盘指数 {data['signal_close']}\n"
+                if settings['policy']=='latest_v5' and data.get('reference_entry_time'):
+                    entry=datetime.fromtimestamp(data['reference_entry_time']/1000).astimezone().isoformat(timespec='seconds')
+                    expiry=datetime.fromtimestamp(data['reference_expiry_time']/1000).astimezone().isoformat(timespec='seconds')
+                    trigger_note+=f'参考入场时间 {entry}；参考到期时间 {expiry}。到入场时实际指数未知，以币安订单为准。\n'
                 why = '原因：'+'；'.join(data.get('signal_reasons', [])[-3:])+'\n' if data.get('signal_reasons') else ''
                 body = trigger_note + why + risk_note + '\n' + f"{data.get('source', '')} · {data.get('pair', '')}\n指数快照 {data.get('reference_price')}\n指标基准 {baseline}\n官方规则：提交后下一秒取开仓指数，再过600秒结算；平价退本金。验证假设赢+{settings['payout']*100:g}%/输-100%，实际赔率以确认订单为准。此快照不是实际开仓价；仅供观察，不是下单指令。"
             # Network I/O must not block saving a stop request or reading status.
@@ -243,7 +247,7 @@ class PhoneMonitor:
                     return
             phase = 'push'
             self._record('push_attempt', kind='signal', signal_time=stamp)
-            self.sender(settings['key'], f"BTC {'最新版信号' if settings['policy'] == 'latest_v4' else '新策略信号' if settings['policy'] in ('trend_v2', 'pullback_v3') else '候选方向' if settings['policy'] == 'candidate' else '严格方向'} · {direction}", body)
+            self.sender(settings['key'], f"BTC {'最新版研究信号' if settings['policy'] == 'latest_v5' else '新策略信号' if settings['policy'] in ('trend_v2', 'pullback_v3') else '候选方向' if settings['policy'] == 'candidate' else '严格方向'} · {direction}", body)
             self._push_result('accepted', 'signal', stamp)
             with self.lock:
                 if revision != self.revision: return

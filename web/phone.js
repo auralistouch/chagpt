@@ -1,8 +1,8 @@
 /* Device credentials stay on the local Mac; never echo them in status output. */
 (() => {
-  const currentPolicy = 'latest_v4';
-  const currentVersion = 'reversion_v4.0';
-  const strategyName = '均值偏离后的确认反转';
+  const currentPolicy = 'latest_v5';
+  const currentVersion = 'activity_v5.0';
+  const strategyName = 'ATR偏离后的反转研究';
   const el = id => document.getElementById(id);
   const status = message => { el('phone-status').textContent = message; };
   let busy = false;
@@ -19,10 +19,19 @@
   function show(data, updateControls=false) {
     lastState=data;
     const source = data.mode === 'coinbase' ? 'Coinbase BTC/USD（不发合约提醒）' : '币安 BTCUSDT 指数';
-    status(data.available === false ? data.message : `${data.configured ? '推送地址已保存在本机' : '尚未保存推送地址'}；${data.enabled ? '手机监测已启用' : '手机监测未启用'}。${data.message}。监测策略：${strategyName}，${source}，模拟净收益 ${Math.round((data.payout || .8)*100)}%。65% 为研究验收目标，未通过时不发送方向提醒。`);
+    status(data.available === false ? data.message : `${data.configured ? '推送地址已保存在本机' : '尚未保存推送地址'}；${data.enabled ? '手机监测已启用' : '手机监测未启用'}。${data.message}。监测策略：${strategyName}，${source}，模拟净收益 ${Math.round((data.payout || .8)*100)}%。${data.research_mode === true ? '研究模式：可发送未验证65%的观察方向，命中率与数量均不保证。' : '65%为研究验收目标，未通过时不发送方向提醒。'}`);
     if (data.last_check) status(el('phone-status').textContent+` 上次检查：${new Date(data.last_check).toLocaleString('zh-CN',{hour12:false})}。`);
     if (el('phone-counts')) el('phone-counts').textContent = `本次运行已检查 ${data.check_count || 0} 次；拦截统计：${JSON.stringify(data.block_counts || {})}；上次推送结果：${data.last_push_result?.result || '尚未尝试'}（accepted仅指服务接受，unknown指未确认）。`;
-    if (el('phone-counts')) el('phone-counts').textContent += ` 每日UTC实测（checks=检查，candidate_minutes=策略满足分钟，signal_attempts=正式尝试，accepted=服务接受）：${JSON.stringify(data.daily_utc || {})}。候选不是买卖信号；日志累计不代表已验证胜率。`;
+    if (el('phone-counts')) el('phone-counts').textContent += ` 每日UTC实测（checks=检查，candidate_minutes=策略满足分钟，signal_attempts=方向发送尝试，accepted=服务接受）：${JSON.stringify(data.daily_utc || {})}。候选不是买卖信号；日志累计不代表已验证胜率。`;
+    const activity=data.signal_activity_12h;
+    const count=value => Number.isFinite(value) ? value : '未知';
+    if (el('phone-activity')) {
+      el('phone-activity').textContent=activity ? `最近12小时：候选 ${count(activity.candidate_count)} 个；研究方向发送尝试 ${count(activity.signal_attempts)} 次；Bark接受 ${count(activity.accepted)} 次、拒绝 ${count(activity.rejected)} 次、结果未知 ${count(activity.unknown)} 次。发送次数距 ${activity.target} 次目标还差 ${count(activity.gap)} 次；接受次数还差 ${count(activity.accepted_gap)} 次。` : '尚无最近12小时推送统计，无法判断发送频率。';
+    }
+    if (el('phone-activity-coverage')) {
+      const observed=Number.isFinite(activity?.observation_start_ms) ? new Date(activity.observation_start_ms).toLocaleString('zh-CN',{hour12:false}) : '未知';
+      el('phone-activity-coverage').textContent=activity ? `${activity.full_window && activity.tracking_complete ? '已覆盖完整12小时。' : '统计覆盖不足完整12小时或记录不完整，以上仅为已记录次数。'} 本机观察起点：${observed}。${activity.note || 'Bark接受仅指服务接受，不证明手机已显示。'}测试通知不计入，目标约20次并非固定配额。` : '需要当前程序持续记录；旧研究表中的记录不计作实际手机发送。';
+    }
     const currentEvents = (data.recent_events || []).filter(row => row.policy === currentPolicy || row.strategy_version === currentVersion);
     if (el('phone-events')) el('phone-events').textContent = [...currentEvents].reverse().map(row => JSON.stringify(row)).join('\n');
     if (updateControls) {

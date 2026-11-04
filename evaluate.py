@@ -12,6 +12,7 @@ from history_download import download_index_history, atomic_text
 from strategy import Candle, MINUTE, validate
 from point_research import point_backtest
 from replay import exact_replay
+from frequency_research import study_frequency
 
 
 def evaluate(candles, payout=.8, ticks=None):
@@ -22,7 +23,11 @@ def evaluate(candles, payout=.8, ticks=None):
     split=max(61,len(candles)*2//3)
     segments={}
     for name,start,stop in [('early',60,split),('holdout',split,len(candles))]:
-        points=point_backtest(candles,features,start,stop,payout)
+        points=point_backtest(candles,features,start,stop,payout,keep_all=True)
+        frequency=study_frequency(candles,points,start,stop)
+        # Frequency uses all rows; keep the visible result payload bounded.
+        points['trades']=points['trades'][-30:]
+        points['unverified_trades']=points['unverified_trades'][-30:]
         daily={};busy_until=-1
         for i in range(start,stop):
             stamp=candles[i].time+MINUTE
@@ -33,7 +38,7 @@ def evaluate(candles, payout=.8, ticks=None):
                 row['qualified_minutes']+=1
                 if stamp>=busy_until:row['opportunities']+=1;busy_until=stamp+601000
         for row in daily.values():row['partial_day']=row['evaluated_minutes']!=1440
-        segments[name]=dict(reference=points,daily_utc=daily)
+        segments[name]=dict(reference=points,daily_utc=daily,frequency_research=frequency)
     from bisect import bisect_left
     fresh_start=bisect_left([c.time+MINUTE for c in candles],VALIDATION_START_MS)
     if fresh_start<len(candles):
@@ -43,7 +48,9 @@ def evaluate(candles, payout=.8, ticks=None):
     validation=validation_from_rows(future_rows,None,payout,pending)
     result=dict(strategy_version=VERSION,payout_assumption=payout,exact_contract_replay=False,
                 actual_order_results=False,production_push_backtest=False,research_validation=validation,
-                note='只评估当前固定策略；65%是新时段研究目标，已看过数据不能独立证明它。分钟开盘参考点研究不是实际订单，不自动选择参数。',**segments)
+                research_mode=True,frequency_target=dict(window_hours=12,target=20,approximate=True,guaranteed=False),
+                prior_data_exposure=True,independent_validation=False,
+                note='只评估当前研究策略；65%是累计获胜比例目标，已看过数据不能独立证明它。用户已选择未达到65%也接收研究方向；约20次/12h不是每窗保证。分钟参考不是实际订单。',**segments)
     if ticks is not None:
         result['exact_candidate_replay']=exact_replay(candles,ticks,features=features,payout=payout)
         result['exact_candidate_replay']['strategy_version']=VERSION
@@ -62,7 +69,7 @@ def main():
     if not 3<=args.days<=90 or not .01<=args.payout<=2:p.error('days须3–90，payout须.01–2')
     output=Path(args.output);output.parent.mkdir(parents=True,exist_ok=True)
     download_metadata=None
-    print('评估下载工具 v4.0：每个请求最多尝试4次，完整页面自动缓存；不下单、不推送。',flush=True)
+    print('评估下载工具 v5.0：每个请求最多尝试4次，完整页面自动缓存；不下单、不推送。',flush=True)
     if args.input:
         source=Path(args.input)
         with source.open(encoding='utf-8',newline='') as stream:
@@ -93,6 +100,8 @@ def main():
     stats=result['holdout']['reference']
     print(result['strategy_version'],'后段研究样本',stats['total'],'研究胜/亏/平',stats['wins'],stats['losses'],stats['ties'],'未验证',stats['unverified'],'研究命中率',stats['win_rate_pct'])
     print('65%为研究目标；冻结规则后的新样本：',result['research_validation']['reason'])
+    frequency=result['holdout']['frequency_research']
+    print('后段完整滚动12h候选次数：最少',frequency['minimum'],'平均',frequency['average'],'最多',frequency['maximum'],'；不是实际推送次数或未来保证')
     print('不是实际订单胜率。报告：',output.resolve())
 
 

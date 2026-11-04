@@ -79,6 +79,15 @@ class LatestPhoneTests(unittest.TestCase):
         self.assertEqual(json.loads(self.path.read_text()), {**saved, 'policy': POLICY})
         self.assertEqual(monitor.state['last_signal_time'], 42)
 
+    def test_v4_upgrade_preserves_real_previous_policy_and_credentials(self):
+        saved=self.old_settings(policy='latest_v4',mode='live',last_signal_time=STAMP)
+        monitor=LatestPhoneMonitor(self.path,self.reporter,self.sender)
+        self.assertEqual(json.loads(self.path.read_text()),{**saved,'policy':POLICY})
+        self.assertTrue(monitor.status()['configured'])
+        self.assertTrue(monitor.status()['enabled'])
+        monitor.check_once()
+        self.sender.assert_not_called()  # A version upgrade does not reset dedup.
+
     def test_failed_atomic_migration_disables_and_retains_original_file(self):
         saved = self.old_settings(mode='live')
         original = self.path.read_bytes()
@@ -108,7 +117,7 @@ class LatestPhoneTests(unittest.TestCase):
         self.assertEqual(self.path.read_text(), '{invalid json')
 
     def test_old_tab_cannot_save_an_older_or_missing_policy(self):
-        for policy in ('strict', 'candidate', 'trend_v2', 'pullback_v3', None):
+        for policy in ('strict', 'candidate', 'trend_v2', 'pullback_v3', 'latest_v4', None):
             values = dict(key=KEY, enabled=True)
             if policy is not None:
                 values['policy'] = policy
@@ -153,6 +162,48 @@ class LatestPhoneTests(unittest.TestCase):
             research_validation={'passed': True})
         self.monitor.check_once()
         self.sender.assert_not_called()
+
+    def test_research_opt_in_can_send_below_aggregate_target(self):
+        self.configure()
+        self.reporter.return_value={**observation(),'research_mode':True,
+                                    'research_validation':{'passed':False,'observed_pct':54.3}}
+        self.monitor.check_once()
+        self.sender.assert_called_once()
+        self.assertIn('尚未证明65%累计命中率',self.sender.call_args.args[2])
+        self.assertNotIn('通过既定研究门槛',self.sender.call_args.args[2])
+        activity=self.monitor.status()['signal_activity_12h']
+        self.assertEqual(activity['signal_attempts'],1)
+        self.assertEqual(activity['accepted'],1)
+        self.monitor.test()
+        self.assertEqual(self.monitor.status()['signal_activity_12h']['signal_attempts'],1)
+
+    def test_research_flag_must_be_exact_boolean_and_version_still_matches(self):
+        self.configure()
+        for changes in ({'research_mode':1},{'research_mode':'true'},
+                        {'research_mode':True,'strategy_version':'reversion_v4.0'},
+                        {'research_mode':True,'policy':'latest_v4'}):
+            self.reporter.return_value={**observation(),'research_validation':{'passed':False},**changes}
+            self.monitor.check_once()
+        self.sender.assert_not_called()
+
+    def test_auxiliary_storage_failure_does_not_reclassify_accepted_push(self):
+        self.configure()
+        self.reporter.return_value={**observation(),'research_mode':True,'research_validation':{'passed':False}}
+        with patch.object(self.monitor._activity,'record',side_effect=OSError('disk full')):
+            self.monitor.check_once()
+        self.sender.assert_called_once()
+        self.assertEqual(self.monitor.status()['last_push_result']['result'],'accepted')
+        self.assertFalse(self.monitor.status()['signal_activity_12h']['tracking_complete'])
+        self.monitor.check_once()
+        self.sender.assert_called_once()
+
+    def test_journal_failure_does_not_reclassify_accepted_push(self):
+        self.configure()
+        with patch.object(self.monitor.journal,'record',side_effect=OSError('disk full')):
+            self.monitor.check_once()
+        self.assertEqual(self.monitor.status()['last_push_result']['result'],'accepted')
+        self.assertEqual(self.monitor.status()['signal_activity_12h']['accepted'],1)
+        self.assertFalse(self.monitor.status()['signal_activity_12h']['tracking_complete'])
 
     def test_test_push_works_while_waiting_or_disabled_without_using_cooldown(self):
         self.configure(enabled=False)
@@ -226,6 +277,19 @@ class LatestAppTests(unittest.TestCase):
         self.assertEqual(result['source'], '币安 BTCUSDT 指数')
         self.assertNotIn('reference_study', result)
         self.assertIn(('live', 'index_only'), app.CACHE)
+
+    def test_slow_analysis_cannot_send_a_snapshot_that_expired_during_calculation(self):
+        app.CACHE.clear()
+        candles,now=demo_candles()
+        fixture={**observation(),'data_age_seconds':0,'quote_age_seconds':0,'research_mode':True}
+        with patch('app.fetch_index_candles',return_value=(candles,now)), \
+             patch('app.fetch_index_quote',return_value={'price':100,'time':now}), \
+             patch('app.analyze_latest',return_value=fixture), \
+             patch('app.time.monotonic',side_effect=[0,0,0,0,0,16]):
+            result=app.report('live',.8,POLICY)
+        self.assertEqual(result['quote_age_seconds'],16)
+        self.assertEqual(result['action'],'WAIT')
+        self.assertIn('stale_after_analysis',result['blocker_codes'])
 
 
 class LatestHTTPTests(unittest.TestCase):

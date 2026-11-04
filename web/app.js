@@ -1,7 +1,7 @@
 const $ = id => document.getElementById(id);
-const CURRENT_POLICY = 'latest_v4';
-const CURRENT_VERSION = 'reversion_v4.0';
-const STRATEGY_NAME = '均值偏离后的确认反转';
+const CURRENT_POLICY = 'latest_v5';
+const CURRENT_VERSION = 'activity_v5.0';
+const STRATEGY_NAME = 'ATR偏离后的反转研究';
 const time = value => Number.isFinite(value) ? new Date(value).toLocaleString('zh-CN', {hour12: false}) : '无数据';
 const price = value => Number(value).toLocaleString('zh-CN', {minimumFractionDigits: 2, maximumFractionDigits: 2});
 const percent = value => Number.isFinite(value) ? `${value}%` : '无样本';
@@ -48,23 +48,34 @@ function scheduleRefresh(delay) {
 function render(data) {
   const validation = data.research_validation;
   const validated = validation?.passed === true;
-  const action = validated ? data.action : 'WAIT';
+  const researchMode = data.research_mode === true;
+  const action = validated || researchMode ? data.action : 'WAIT';
   hasResult = true;
   $('empty').hidden = true; $('error').hidden = true; $('results').hidden = false;
   text('source', data.demo ? '演示数据 · 禁止交易' : `${data.source} · 已获取`);
   text('pair-label', `${data.price_kind === 'index' ? '当前指数快照' : '研究收盘价'} · ${data.pair}`);
-  text('action', {WAIT: '等待 · 暂无可用买点', UP: '看涨信号 ↑', DOWN: '看跌信号 ↓'}[action] || '等待');
+  text('action', {WAIT: '等待 · 暂无可用买点', UP: researchMode ? '看涨研究信号 ↑' : '看涨信号 ↑', DOWN: researchMode ? '看跌研究信号 ↓' : '看跌信号 ↓'}[action] || '等待');
   $('action').className = action === 'UP' ? 'positive' : action === 'DOWN' ? 'negative' : '';
   const setup = data.setup ? ` · ${data.setup}` : '';
   const validity = Number.isFinite(data.valid_until) ? `参考有效至 ${time(data.valid_until)}。` : '';
   const validationReason = validation?.reason || '暂无验收数据，保持等待。';
   const note = data.demo ? '这是合成行情，用于熟悉界面，研究数值均无交易意义。' : data.price_kind === 'index' ? `${STRATEGY_NAME}${setup}。${validity}指标使用已收盘K线；当前指数快照不是实际开仓价，实际赔率和结算以订单为准。` : '独立现货行情研究，不能验证币安事件合约；不会发送合约观察提醒。';
-  text('signal-note', `${note}${validated ? '' : ` 研究验收未通过：${validationReason}`}`);
+  text('signal-note', `${researchMode ? '研究模式 · 未验证65%。' : ''}${note}${validated ? '' : ` 研究验收未通过：${validationReason}`}`);
   list('blockers', [...new Set([...(data.blockers || []), ...(data.warnings || []), ...(validated ? [] : [validationReason])])]);
-  text('validation-status', validated ? `研究验收已通过：${validationReason}` : `等待 · ${validationReason}`);
+  text('validation-status', validated ? `研究验收已通过：${validationReason}` : `${researchMode ? '研究模式 · 未验证65%' : '等待'} · ${validationReason}`);
   $('validation-status').className = validated ? 'positive' : '';
-  text('validation-details', validation ? `验收目标 ${percent(validation.target_pct)}；最低已结算样本 ${validation.min_samples}；已完成 ${validation.total}（胜 ${validation.wins} / 亏 ${validation.losses} / 平 ${validation.ties}）。累计命中率 ${percent(validation.observed_pct)}（获胜 ÷ 全部已结算，平价不算赢）；未验证 ${validation.unverified ?? 0}。验证起点：${time(validation.validation_start)}。研究结果不代表你的实单胜率。` : '尚无当前策略的验收数据，不发送方向提醒。');
+  text('validation-details', validation ? `验收目标 ${percent(validation.target_pct)}；最低已结算样本 ${validation.min_samples}；已完成 ${validation.total}（胜 ${validation.wins} / 亏 ${validation.losses} / 平 ${validation.ties}）。累计命中率 ${percent(validation.observed_pct)}（获胜 ÷ 全部已结算，平价不算赢）；未验证 ${validation.unverified ?? 0}。验证起点：${time(validation.validation_start)}。研究结果不代表你的实单胜率。` : `尚无当前策略的验收数据。${researchMode ? '研究模式观察方向不代表已经达标。' : '不发送方向提醒。'}`);
+  const frequency = data.price_kind === 'index' && !data.demo ? data.frequency_research : null;
+  if (frequency?.enough_data === true && frequency.complete_window_count > 0) {
+    text('frequency-status', `历史分钟参考：每12小时平均 ${Number(frequency.average).toFixed(2)} 次，最少 ${frequency.minimum} 次，最多 ${frequency.maximum} 次；目标约 ${frequency.target} 次。`);
+    text('frequency-details', `完整滚动窗口 ${frequency.complete_window_count} 个；中位数 ${frequency.median} 次；达到 ${frequency.target} 次的窗口占 ${percent(frequency.windows_at_target_pct)}。这些是候选研究记录，未重演实时拦截、通知和人工操作。`);
+  } else {
+    text('frequency-status', '尚无完整12小时研究窗口，无法判断信号频率是否达到目标。');
+    text('frequency-details', '需要连续且具备完整到期端点的指数历史；无数据不按达标或零次完整窗口处理。');
+  }
   text('price', price(data.reference_price)); text('signal-time', time(data.signal_time));
+  text('reference-entry', time(data.reference_entry_time));
+  text('reference-expiry', time(data.reference_expiry_time));
   text('expiry', time(data.estimated_expiry)); text('age', `指标 ${data.data_age_seconds} 秒${data.price_kind === 'index' ? `；指数快照 ${data.quote_age_seconds} 秒` : ''}（请求时）`);
   const m = data.metrics || {};
   const checks = Array.isArray(m.checks) ? m.checks : [];

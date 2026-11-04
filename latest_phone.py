@@ -1,19 +1,26 @@
 """Latest-only production phone monitor; legacy monitors remain research helpers."""
 from journal import Journal
 from phone import PhoneMonitor, send_bark
+from latest_strategy import POLICY, VERSION
+from rolling_activity import RollingActivity
+import time
 
-POLICY = 'latest_v4'
-VERSION = 'reversion_v4.0'
 
 
 class LatestPhoneMonitor(PhoneMonitor):
     def __init__(self, path, reporter, sender=send_bark, interval=30):
         self._latest_source_reporter = reporter
         self._latest_validation = None
+        self._activity = None
+        self._activity_error = False
         super().__init__(path, self._latest_report, sender, interval)
         # A new journal keeps old strategies' events and counters out of the
         # latest screen without removing any historical files.
-        self.journal = Journal(self.path.parent/'logs'/'latest_v4')
+        self.journal = Journal(self.path.parent/'logs'/POLICY)
+        try:
+            self._activity = RollingActivity(self.path.parent/'activity'/POLICY,self.journal.path.parent)
+        except (OSError,ValueError,TypeError):
+            self._activity_error = True
         candidate = {**self.state, 'policy': POLICY}
         unreadable = self.message.startswith('本机手机配置无法读取')
         if unreadable:
@@ -47,9 +54,9 @@ class LatestPhoneMonitor(PhoneMonitor):
         if data.get('strategy_version') != VERSION:
             codes.append('latest_version_mismatch')
             reasons.append('策略版本校验未通过，已取消正式推送')
-        if not isinstance(validation, dict) or validation.get('passed') is not True:
+        if data.get('research_mode') is not True and (not isinstance(validation, dict) or validation.get('passed') is not True):
             codes.append('latest_validation_required')
-            reasons.append('最新版尚未通过预先设定的65%研究门槛，暂不发送正式买点')
+            reasons.append('缺少明确研究模式且尚未通过65%目标，取消方向提醒')
         if codes:
             result['action'] = 'WAIT'
         result.update(policy=POLICY, strategy_version=VERSION,
@@ -68,11 +75,25 @@ class LatestPhoneMonitor(PhoneMonitor):
 
     def _record(self, event, **fields):
         # Caller-supplied metadata must not overwrite the production version.
-        fields.update(policy=POLICY, strategy_version=VERSION)
+        fields.update(policy=POLICY, strategy_version=VERSION,research_mode=True)
         if event == 'check_result':
             with self.lock:
                 fields['research_validation'] = self._latest_validation
-        return super()._record(event, **fields)
+        try:
+            row=super()._record(event, **fields)
+        except (OSError,ValueError,TypeError):
+            # Diagnostic storage must not turn an accepted push into unknown.
+            # The separate, mandatory pre-send dedup save is still enforced.
+            self._activity_error=True
+            row=dict(time=int(time.time()*1000),event=event,policy=POLICY,
+                     strategy_version=VERSION,**{k:fields[k] for k in
+                     ('kind','result','signal_time') if k in fields})
+            if isinstance(fields.get('metrics'),dict):
+                row['metrics']={'qualified':fields['metrics'].get('qualified') is True}
+        if self._activity is not None:
+            try:self._activity.record(row)
+            except (OSError,ValueError,TypeError):self._activity_error=True
+        return row
 
     def status(self):
         result = super().status()
@@ -80,5 +101,14 @@ class LatestPhoneMonitor(PhoneMonitor):
             validation = dict(self._latest_validation) if self._latest_validation is not None else None
         if result['last_diagnostics'] is not None:
             result['last_diagnostics'] = {**result['last_diagnostics'], 'research_validation': validation}
-        result.update(policy=POLICY, strategy_version=VERSION, research_validation=validation)
+        activity=self._activity.status() if self._activity is not None else dict(
+            window_hours=12,target=20,candidate_count=None,signal_attempts=None,
+            accepted=None,rejected=None,unknown=None,gap=None,accepted_gap=None,
+            observation_start_ms=None,full_window=False,tracking_complete=False,
+            note='本机次数统计不可用，无法确认最近12小时发送数量；请检查磁盘空间和目录权限。')
+        if self._activity_error:
+            activity={**activity,'tracking_complete':False,
+                      'note':activity['note']+' 本次运行诊断或统计保存曾失败，可能少计，不视为完整记录。'}
+        result.update(policy=POLICY, strategy_version=VERSION, research_validation=validation,
+                      research_mode=True,signal_activity_12h=activity)
         return result
