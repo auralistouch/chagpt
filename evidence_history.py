@@ -107,6 +107,28 @@ class IndexEvidenceHistory:
             if os.path.exists(filename):
                 os.unlink(filename)
 
+    def seed(self):
+        """Read newest valid contiguous persisted tail, including partial startup pages.
+
+        It is only a fetch seed. A live call must still verify a full current
+        window and obtain a fresh index quote before any direction is possible.
+        """
+        with self.lock:
+            if not self.directory.exists():return []
+            paths=sorted(self.directory.glob('*.json'))
+            for path in paths:
+                if not DAY_FILE.fullmatch(path.name):raise RuntimeError('本机指数研究历史文件名无效')
+            records=[]
+            for path in paths[-32:]:records.extend(self._read_day(path,path.stem).values())
+            if not records:return []
+            records.sort(key=lambda candle:candle.time)
+            cutoff=records[-1].time-(self.max_minutes-1)*MINUTE
+            records=[c for c in records if c.time>=cutoff]
+            start=0
+            for i in range(1,len(records)):
+                if records[i].time-records[i-1].time!=MINUTE:start=i
+            return records[start:]
+
     def merge(self, candles):
         """Return (latest contiguous candles, diagnostics), bounded to 30 days.
 

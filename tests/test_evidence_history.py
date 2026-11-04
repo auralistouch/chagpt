@@ -216,6 +216,7 @@ class EvidenceAppTests(unittest.TestCase):
         order = []
         diagnostic = {'has_gap': True, 'gap_count': 1, 'retained_minutes': 200}
         store = Mock()
+        store.seed.return_value = []
         store.merge.side_effect = lambda candles: (order.append('merge') or (merged, diagnostic))
         now = fresh[-1].time+MINUTE+1000
         with patch.object(app, 'EVIDENCE_HISTORY', store), \

@@ -40,8 +40,16 @@ def report(mode, payout, policy='strict'):
                     candles, exchange_now = fetch_coinbase(saved.get('candles') if saved else None)
                 elif mode == 'live':
                     previous = saved.get('candles') if saved else None
-                    candles, exchange_now = (fetch_index_candles(previous, include_spot_volume=False)
-                                             if index_only else fetch_index_candles(previous))
+                    if policy == 'latest_v4' and EVIDENCE_HISTORY is not None:
+                        disk = EVIDENCE_HISTORY.seed()
+                        joined = {c.time: c for c in disk}
+                        joined.update((c.time,c) for c in (previous or []))
+                        previous = [joined[t] for t in sorted(joined)] or None
+                        candles, exchange_now = fetch_index_candles(previous, include_spot_volume=False,
+                                                                     page_sink=EVIDENCE_HISTORY.merge)
+                    else:
+                        candles, exchange_now = (fetch_index_candles(previous, include_spot_volume=False)
+                                                 if index_only else fetch_index_candles(previous))
                 else:
                     candles, exchange_now = demo_candles()
                 finished = time.monotonic()

@@ -13,6 +13,7 @@ from strategy import Candle, MINUTE, validate
 BASE = 'https://api.binance.com'
 COINBASE = 'https://api.exchange.coinbase.com'
 FUTURES = 'https://fapi.binance.com'
+_MONOTONIC = time.monotonic
 
 
 class MarketError(RuntimeError):
@@ -21,56 +22,82 @@ class MarketError(RuntimeError):
         self.diagnostic = dict(code=code, provider=provider, http_status=http_status)
 
 
-def fetch_index_candles(previous=None, count=4320, include_spot_volume=True):
-    """Index OHLC joined to explicit spot volume; index field 5 is NOT volume.
+def live_request(path, base=FUTURES, name='币安指数', attempts=3, deadline=None):
+    """Bounded retry for live public GETs; historical request() stays single-shot."""
+    for attempt in range(attempts):
+        if deadline is not None and deadline-_MONOTONIC()<15:
+            raise MarketError('本次行情请求耗时较长，已完成历史页会保留，稍后自动继续', 'batch_deadline', name)
+        try:
+            return request(path, base, name)
+        except MarketError as error:
+            error.diagnostic = {**error.diagnostic, 'endpoint': path.split('?')[0], 'attempt': attempt+1}
+            info=error.diagnostic
+            transient=(info['code'] in ('network_error','incomplete_response','invalid_json') or
+                       (info['code']=='http_error' and info['http_status'] in (408,500,502,503,504)))
+            if not transient or attempt+1>=attempts:raise
+            delay=(.5,1.5)[min(attempt,1)]
+            if deadline is not None and deadline-_MONOTONIC()<15+delay:raise
+            time.sleep(delay)
 
-    Fail closed on either source, timestamp mismatch, gaps or duplicate rows.
-    Never reuse spot OHLC as index prices.
+
+def fetch_index_candles(previous=None, count=4320, include_spot_volume=True, page_sink=None):
+    """Resume missing index minutes; persist only complete validated closed pages.
+
+    All reads share a 60s history budget. No partial/stale window is returned as
+    a successful analysis, and volume is never taken from index field 5.
     """
-    clock = int(request('/fapi/v1/time', FUTURES, '币安指数')['serverTime'])
-    end = clock//MINUTE*MINUTE
-    if type(count) is not int or not 71 <= count <= 129600:
-        raise ValueError('指数窗口须在71根至90天一分钟K线之间')
-    oldest = end-count*MINUTE
-    existing = {c.time: c for c in (previous or []) if oldest <= c.time < end}
-    incremental = len(existing) >= count-320 and bool(existing) and max(existing) >= end-999*MINUTE
-    begin = max(existing) if incremental else oldest
-    combined = existing if incremental else {}
-    cursor = begin
-    while cursor < end:
-        page_end = min(end, cursor+1000*MINUTE)
-        query = urlencode(dict(pair='BTCUSDT', interval='1m', limit=1000,
-                               startTime=cursor, endTime=page_end-1))
-        rows = request('/fapi/v1/indexPriceKlines?'+query, FUTURES, '币安指数')
-        volume_query = urlencode(dict(symbol='BTCUSDT', interval='1m', limit=1000,
-                                      startTime=cursor, endTime=page_end-1))
-        volumes = request('/api/v3/klines?'+volume_query) if include_spot_volume else None
-        expected = set(range(cursor, page_end, MINUTE))
+    if type(count) is not int or not 71<=count<=129600:raise ValueError('指数窗口须在71根至90天一分钟K线之间')
+    deadline=_MONOTONIC()+60
+    time_data=live_request('/fapi/v1/time',deadline=deadline)
+    if not isinstance(time_data,dict) or type(time_data.get('serverTime')) is not int:raise ValueError('指数服务器时间响应无效')
+    clock=time_data['serverTime'];end=clock//MINUTE*MINUTE;oldest=end-count*MINUTE
+    combined={c.time:c for c in (previous or []) if oldest<=c.time<end}
+    # Even a 500-minute prefix is useful. Always refresh the last cached minute.
+    refresh_from=max(combined) if combined else oldest
+    cursor=oldest
+    limit=1000 if include_spot_volume else 500
+    while cursor<end:
+        if cursor in combined and cursor<refresh_from:
+            cursor+=MINUTE;continue
+        page_end=cursor
+        while page_end<end and page_end<cursor+limit*MINUTE:
+            if page_end in combined and page_end<refresh_from:break
+            page_end+=MINUTE
+        expected=set(range(cursor,page_end,MINUTE))
+        query=urlencode(dict(pair='BTCUSDT',interval='1m',limit=limit,startTime=cursor,endTime=page_end-1))
+        rows=live_request('/fapi/v1/indexPriceKlines?'+query,deadline=deadline)
         def page(items):
-            if not isinstance(items, list): raise RuntimeError('行情响应不是 K 线列表')
-            result = {}
+            if not isinstance(items,list):raise RuntimeError('行情响应不是K线列表')
+            result={}
             for row in items:
-                stamp = int(row[0])
-                if stamp not in expected or stamp in result:
-                    raise RuntimeError('指数/量能行情含重复或越界 K 线')
-                result[stamp] = row
-            if set(result) != expected:
-                raise RuntimeError('指数与现货量能行情缺失或时间未对齐，暂停提示')
+                if not isinstance(row,list) or len(row)<5:raise ValueError('指数/量能行情字段不完整')
+                stamp=int(row[0])
+                if stamp not in expected or stamp in result:raise RuntimeError('指数/量能行情含重复或越界K线')
+                result[stamp]=row
+            if set(result)!=expected:raise RuntimeError('指数与量能行情缺失或时间未对齐，暂停提示')
             return result
-        prices = page(rows)
-        spot = page(volumes) if include_spot_volume else None
+        prices=page(rows);spot=None
+        if include_spot_volume:
+            volume_query=urlencode(dict(symbol='BTCUSDT',interval='1m',limit=limit,startTime=cursor,endTime=page_end-1))
+            spot=page(live_request('/api/v3/klines?'+volume_query,BASE,'币安现货量能',deadline=deadline))
+        complete=[]
         for stamp in sorted(expected):
-            row = prices[stamp]
-            combined[stamp] = Candle(stamp, *map(float, row[1:5]), float(spot[stamp][5]) if spot is not None else 0.0)
-        cursor = page_end
-    candles = [combined[t] for t in sorted(combined)]
-    if len(candles) != count: raise RuntimeError('指数连续行情不足请求窗口，暂停提示')
+            opening,high,low,close=map(float,prices[stamp][1:5])
+            volume=float(spot[stamp][5]) if spot is not None else 0.0
+            if (not all(math.isfinite(v) for v in (opening,high,low,close,volume)) or
+                min(opening,high,low,close)<=0 or volume<0 or low>min(opening,close) or high<max(opening,close) or low>high):
+                raise ValueError('指数页价格或量能无效，未保存该页')
+            complete.append(Candle(stamp,opening,high,low,close,volume))
+        if page_sink is not None:page_sink(complete)
+        combined.update((c.time,c) for c in complete);cursor=page_end
+    candles=[combined[t] for t in sorted(combined)]
+    if len(candles)!=count:raise RuntimeError('指数连续行情不足请求窗口，暂停提示')
     validate(candles)
-    return candles, clock
+    return candles,clock
 
 
 def fetch_index_quote():
-    data = request('/fapi/v1/premiumIndex?symbol=BTCUSDT', FUTURES, '币安指数')
+    data = live_request('/fapi/v1/premiumIndex?symbol=BTCUSDT', attempts=2)
     if not isinstance(data, dict) or data.get('symbol') != 'BTCUSDT':
         raise RuntimeError('指数快照品种不匹配')
     price, stamp = float(data['indexPrice']), int(data['time'])
