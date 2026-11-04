@@ -8,7 +8,7 @@
   <header><div class="logo">₿</div><div><h1>十分钟观察台</h1><p>BTCUSDT 指数 · 均值偏离后的确认反转 · reversion_v4.0</p></div><span id="source" class="badge">尚未连接</span></header>
   <main>
     <div class="notice">按币安官方规则观察：<strong>提交后下一秒取开仓指数，再过600秒到期；平价退本金</strong>。默认使用BTCUSDT指数，新策略只使用指数行情，不依赖现货成交量。实际赔率以订单确认为准。实际订单按单点指数结算；历史一分钟K线不能重建任意秒位的实单价格；研究命中率不等于实际胜率；历史表现不保证未来收益。不自动下单。</div>
-    <p class="hint">当前策略：均值偏离后的确认反转。65% 是研究验收目标，不是已达到或保证的实单胜率；未通过验收时保持等待，不发送方向提醒。下方订单统计按导入单点计算；分钟研究不等于实单，缺失端点不按亏损。</p>
+    <p class="hint">当前策略：均值偏离后的确认反转。65% 指一批已结算记录的累计获胜占比，不是单笔预测概率；当前仍未验证达标；未通过验收时保持等待，不发送方向提醒。下方订单统计按导入单点计算；分钟研究不等于实单，缺失端点不按亏损。</p>
     <section class="controls">
       <label>数据来源<select id="mode"><option value="live" selected>币安 BTCUSDT 指数（合约观察）</option><option value="coinbase">Coinbase BTC/USD（行情研究）</option><option value="demo">合成演示（不能交易）</option></select></label>
       <label>模拟净收益比例<input id="payout" type="number" min="1" max="200" value="80" step="1"><span>%（不含返还本金）</span></label>
@@ -51,7 +51,7 @@
         <article class="signal card"><div class="eyebrow">当前观察结论</div><h2 id="action">等待</h2><p id="signal-note"></p><ul id="blockers"></ul><p class="hint">观察方向不代表可以盈利，不是实际可成交的买点，也不提供事件合约交易资格。</p></article>
         <article class="card"><div class="eyebrow" id="pair-label">最近收盘参考价 · BTC / USDT</div><div id="price" class="number">—</div><dl><dt>信号基准时间</dt><dd id="signal-time"></dd><dt>假设此刻提交的预计到期</dt><dd id="expiry"></dd><dt>行情延迟</dt><dd id="age"></dd></dl><p class="hint">指数快照不是实际开仓价。预计到期基于本次观察时刻；实际提交、开仓和到期以订单为准。时间使用浏览器时区。</p></article>
       </section>
-      <section class="card" aria-label="当前策略研究验收"><h3>研究验收目标：65%</h3><p class="hint">65% 是待验证目标，不是已保证胜率。验收使用当前策略的分钟单点研究，不能代替真实订单验证。</p><p id="validation-status" role="status" aria-live="polite">等待研究验收数据。</p><p id="validation-details" class="hint"></p></section>
+      <section class="card" aria-label="当前策略研究验收"><h3>研究验收目标：65%</h3><p class="hint">累计命中率＝获胜次数÷全部已结算次数，平价退本金但不算赢。10笔至少赢7笔、20笔赢13笔即达到65%。研究样本与实际订单分别统计，不能混用。</p><p id="validation-status" role="status" aria-live="polite">等待研究验收数据。</p><p id="validation-details" class="hint"></p></section>
       <section class="card chart"><div class="section-head"><h3>最近三小时走势</h3><span>一分钟收盘价</span></div><svg id="chart" viewBox="0 0 1000 220" role="img" aria-label="最近三小时比特币收盘价格曲线"></svg><div id="chart-range" class="hint"></div></section>
       <section class="grid bottom">
         <article class="card"><h3>指标检查</h3><p id="score" class="hint"></p><div id="metrics" class="metric-list"></div><ul id="reasons"></ul><p id="diagnostics" class="hint"></p><p class="hint">满足项数只是规则一致程度，不是上涨、下跌或盈利概率。</p></article>

@@ -63,7 +63,7 @@ function render(data) {
   list('blockers', [...new Set([...(data.blockers || []), ...(data.warnings || []), ...(validated ? [] : [validationReason])])]);
   text('validation-status', validated ? `研究验收已通过：${validationReason}` : `等待 · ${validationReason}`);
   $('validation-status').className = validated ? 'positive' : '';
-  text('validation-details', validation ? `验收目标 ${percent(validation.target_pct)}；最低胜负样本 ${validation.min_samples}；已完成 ${validation.total}（胜 ${validation.wins} / 亏 ${validation.losses} / 平 ${validation.ties}）。研究命中率 ${percent(validation.observed_pct)}；统计下界 ${percent(validation.lower_pct)}。验证起点：${time(validation.validation_start)}。研究结果不代表你的实单胜率。` : '尚无当前策略的验收数据，不发送方向提醒。');
+  text('validation-details', validation ? `验收目标 ${percent(validation.target_pct)}；最低已结算样本 ${validation.min_samples}；已完成 ${validation.total}（胜 ${validation.wins} / 亏 ${validation.losses} / 平 ${validation.ties}）。累计命中率 ${percent(validation.observed_pct)}（获胜 ÷ 全部已结算，平价不算赢）；未验证 ${validation.unverified ?? 0}。验证起点：${time(validation.validation_start)}。研究结果不代表你的实单胜率。` : '尚无当前策略的验收数据，不发送方向提醒。');
   text('price', price(data.reference_price)); text('signal-time', time(data.signal_time));
   text('expiry', time(data.estimated_expiry)); text('age', `指标 ${data.data_age_seconds} 秒${data.price_kind === 'index' ? `；指数快照 ${data.quote_age_seconds} 秒` : ''}（请求时）`);
   const m = data.metrics || {};
@@ -76,7 +76,7 @@ function render(data) {
   text('diagnostics', d ? `本次：${d.candles}根K线，策略满足${d.qualified_minutes}分钟。逐项未通过次数：${Object.entries(d.failed_rule_counts || {}).map(([k,v])=>`${k}=${v}`).join('；')}。触发分钟不等于推送次数。` : '');
   const b = data.price_kind === 'index' && !data.demo ? data.reference_study?.holdout : null;
   if (b) {
-    $('stats').replaceChildren(tile('已完成研究样本', b.total), tile('研究方向命中率（剔除平价）', b.win_rate_pct === null ? '无样本' : b.win_rate_pct+'%'), tile('平价', b.ties), tile('未验证（不计胜负）', b.unverified), tile('假设净盈亏', b.profit_units+' 单位'));
+    $('stats').replaceChildren(tile('已完成研究样本', b.total), tile('研究累计命中率（含平价样本）', b.total ? (100*b.wins/b.total).toFixed(2)+'%' : '无样本'), tile('平价', b.ties), tile('未验证（不计胜负）', b.unverified), tile('假设净盈亏', b.profit_units+' 单位'));
     text('range', `${time(b.from_time)} — ${time(b.to_time)}。研究胜 ${b.wins} / 亏 ${b.losses} / 平 ${b.ties}。不是你的实际订单胜率。`);
     text('gate', '单点研究仅用于评估固定时程，不保证未来收益，也不会作为已验证胜率写入通知。');
     const early = data.reference_study.early;

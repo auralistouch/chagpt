@@ -17,7 +17,7 @@
       const response=await fetch('/api/order-review',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({csv:await file.text()}),cache:'no-store'});
       const data=await response.json();if(!response.ok)throw new Error(data.error || '无法核算');
       el('order-status').textContent=data.note+' 这些数据不参与策略选参或提醒。';
-      el('order-stats').replaceChildren(tile('已导入',data.imported),tile('单点完整订单',data.completed),tile('方向胜率（剔除平价）',data.decisive_win_rate_pct===null?'无数据':data.decisive_win_rate_pct+'%'),tile('胜 / 亏 / 平 / 未验证',`${data.wins} / ${data.losses} / ${data.ties} / ${data.unverified}`),tile('按导入赔率算净盈亏',data.profit_usdt+' USDT'));
+      el('order-stats').replaceChildren(tile('已导入',data.imported),tile('单点完整订单',data.completed),tile('累计命中率（平价计入总数）',data.win_rate_including_ties_pct===null?'无数据':data.win_rate_including_ties_pct+'%'),tile('胜 / 亏 / 平 / 未验证',`${data.wins} / ${data.losses} / ${data.ties} / ${data.unverified}`),tile('按导入赔率算净盈亏',data.profit_usdt+' USDT'));
       el('order-trades').replaceChildren(...data.trades.slice(-100).reverse().map(row=>{
         const tr=document.createElement('tr');
         for(const value of [row.order_id,row.direction==='UP'?'看涨':'看跌',stamp(row.open_time),row.entry??'无端点',stamp(row.expiry),row.exit??'无端点',{WIN:'胜',LOSS:'亏',TIE:'平价退款',UNVERIFIED:'未验证'}[row.outcome]]){const td=document.createElement('td');td.textContent=value;tr.append(td);}return tr;

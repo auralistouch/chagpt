@@ -6,15 +6,30 @@ from strategy import Candle,MINUTE
 from latest_strategy import *
 
 class LatestStrategyTests(unittest.TestCase):
-    def test_research65_requires_post_freeze_samples_and_bound(self):
+    def test_research65_uses_aggregate_completed_rate_without_bound(self):
         rows=[dict(direction='UP',outcome='WIN') for _ in range(65)]+[dict(direction='UP',outcome='LOSS') for _ in range(35)]
         check=validation_from_rows(rows,'UP',.8)
-        self.assertFalse(check['passed'])
+        self.assertTrue(check['passed'])
         self.assertEqual(check['observed_pct'],65)
         good=[dict(direction='UP',outcome='WIN') for _ in range(85)]+[dict(direction='UP',outcome='LOSS') for _ in range(15)]
         self.assertTrue(validation_from_rows(good,'UP',.8)['passed'])
-        self.assertFalse(validation_from_rows(good,'DOWN',.8)['passed'])
+        self.assertTrue(validation_from_rows(good,'DOWN',.8)['passed'])
         self.assertFalse(validation_from_rows(good[:99],'UP',.8)['passed'])
+
+    def test_ties_are_not_wins_and_directions_are_combined(self):
+        def rows(side,wins,losses,ties=0):
+            return [dict(direction=side,outcome='WIN')]*wins+[dict(direction=side,outcome='LOSS')]*losses+[dict(direction=side,outcome='TIE')]*ties
+        check=validation_from_rows(rows('UP',60,30,10),'UP',.8)
+        self.assertEqual(check['observed_pct'],60);self.assertFalse(check['passed'])
+        check=validation_from_rows(rows('UP',65,30,5),'UP',.8)
+        self.assertEqual(check['observed_pct'],65);self.assertTrue(check['passed'])
+        check=validation_from_rows(rows('UP',40,10)+rows('DOWN',25,25),'DOWN',.8)
+        self.assertEqual(check['total'],100);self.assertTrue(check['passed'])
+        check=validation_from_rows(rows('UP',65,35),'UP',.1)
+        self.assertTrue(check['hit_rate_target_met']);self.assertFalse(check['passed'])
+        self.assertFalse(check['profit_requirement_met'])
+        self.assertIn('净盈亏',check['reason'])
+        self.assertFalse(validation_from_rows(rows('UP',64,36),'UP',.8)['passed'])
 
     def test_seen_data_never_certifies65_or_notifies(self):
         data=[Candle(i*MINUTE,100,101,99,100,0) for i in range(300)]

@@ -1,6 +1,6 @@
 """Latest research strategy. 65% is an acceptance target, never a guarantee."""
 from bisect import bisect_left
-from strategy import MINUTE, analyze, wilson_lower, validate
+from strategy import MINUTE, analyze, validate
 from reversion_rules import reversion_features
 from point_research import point_backtest
 
@@ -19,30 +19,38 @@ def latest_features(candles):
 
 
 def validation_from_rows(rows,direction,payout,unverified=0):
-    """Research criterion, not a certified event-contract probability.
+    """Aggregate completed reference outcomes; no per-trade probability claim.
 
-    Caller rows are generated below from the frozen rule and post-freeze price
-    window. No user-supplied success flag is used to authorize the calculation.
+    65% means wins / (wins + losses + ties). Ties refund but are not wins.
+    Direction breakdowns are diagnostic; neither direction is gated separately.
+    Missing/pending endpoints stay explicit and never become losses or wins.
     """
-    required=max(TARGET,1/(1+payout)+.02)
-    by_direction={}
-    for selected in ('UP','DOWN'):
-        subset=[r for r in rows if r['direction']==selected]
-        wins=sum(r['outcome']=='WIN' for r in subset);losses=sum(r['outcome']=='LOSS' for r in subset)
-        ties=sum(r['outcome']=='TIE' for r in subset);n=wins+losses
-        lower=wilson_lower(wins,n)
-        by_direction[selected]=dict(total=len(subset),decisive=n,wins=wins,losses=losses,ties=ties,
-            observed_pct=round(100*wins/n,2) if n else None,lower_pct=round(100*lower,2) if n else None,
-            passed=n>=MIN_SAMPLES and lower>=required)
-    selected=by_direction.get(direction,dict(total=0,decisive=0,wins=0,losses=0,ties=0,observed_pct=None,lower_pct=None,passed=False))
-    if direction not in by_direction:reason=f"当前没有方向触发；冻结规则后的研究样本：看涨{by_direction['UP']['decisive']}/{MIN_SAMPLES}，看跌{by_direction['DOWN']['decisive']}/{MIN_SAMPLES}"
-    elif selected['decisive']<MIN_SAMPLES:reason=f"当前方向冻结规则后的完整新样本 {selected['decisive']}/{MIN_SAMPLES}，尚未达到65%研究验收要求"
-    elif not selected['passed']:reason=f"当前方向95% Wilson研究下界未达到{100*required:.2f}%，暂停方向推送"
-    else:reason='当前方向通过新时段分钟研究门槛；不代表实际订单或未来胜率保证'
-    return {**selected,'target_pct':65,'min_samples':MIN_SAMPLES,'lower_required_pct':round(100*required,2),
+    def summarize(subset):
+        wins=sum(r['outcome']=='WIN' for r in subset)
+        losses=sum(r['outcome']=='LOSS' for r in subset)
+        ties=sum(r['outcome']=='TIE' for r in subset)
+        if wins+losses+ties!=len(subset):raise ValueError('累计命中率只能计入已结算胜、负、平记录')
+        total=len(subset)
+        return dict(total=total,decisive=wins+losses,wins=wins,losses=losses,ties=ties,
+                    observed_pct=round(100*wins/total,2) if total else None,
+                    profit_units=round(wins*payout-losses,8))
+    if any(r.get('direction') not in ('UP','DOWN') for r in rows):raise ValueError('研究记录方向无效')
+    aggregate=summarize(rows)
+    by_direction={side:summarize([r for r in rows if r['direction']==side]) for side in ('UP','DOWN')}
+    rate_met=bool(aggregate['total'] and aggregate['wins']/aggregate['total']>=TARGET)
+    sample_met=aggregate['total']>=MIN_SAMPLES
+    profit_met=aggregate['profit_units']>0
+    passed=sample_met and rate_met and profit_met
+    if not sample_met:reason=f"冻结规则后的完整新样本 {aggregate['total']}/{MIN_SAMPLES}，累计命中率仅作进度，样本尚不足"
+    elif not rate_met:reason=f"累计已结算命中率 {aggregate['observed_pct']:.2f}% 未达到65%，暂停方向推送"
+    elif not profit_met:reason='累计命中率已达65%，但按当前净收益假设的研究净盈亏未为正，暂停方向推送'
+    else:reason='累计已结算命中率达到65%研究目标，且假设净收益为正；不保证未来每批结果'
+    return {**aggregate,'passed':passed,'target_pct':65,'min_samples':MIN_SAMPLES,
+            'hit_rate_target_met':rate_met,'sample_requirement_met':sample_met,'profit_requirement_met':profit_met,
+            'acceptance_metric':'wins_divided_by_all_completed_including_ties',
             'validation_start':VALIDATION_START_MS,'by_direction':by_direction,'unverified':unverified,
             'reason':reason,'source':'post_freeze_minute_open_reference','actual_order_results':False,
-            'guaranteed_win_rate':False,'note':'分钟研究门槛不是实单胜率；连续滚动统计和相关样本也不能保证未来65%。'}
+            'guaranteed_win_rate':False,'note':'65%指已完成的一批记录中获胜次数占比，不是单笔预测概率；分钟研究不等于实单，未验证另列。'}
 
 
 def analyze_latest(candles,now_ms,payout=.8,demo=False,price_kind='spot',quote=None):
@@ -76,7 +84,7 @@ def analyze_latest(candles,now_ms,payout=.8,demo=False,price_kind='spot',quote=N
         reference_study=dict(early=result['early'],holdout=result['holdout']),
         freshness_limit_seconds=60,valid_until=closed[-1]+60000,setup=current['setup'],
         signal_close=candles[-1].close,signal_reasons=current['reasons'],
-        warnings=['65%是研究验收目标，不是已承诺或已证实的未来胜率；实际订单仍以币安记录为准'])
-    result['diagnostics'].update(gate_sample_required=MIN_SAMPLES,gate_lower_required_pct=round(100*max(TARGET,1/(1+payout)+.02),2),
-        gate_passed=target['passed'],validation='仅用冻结规则之后的新分钟研究检查65%目标，未达标等待；旧数据只做研究')
+        warnings=['65%指一批已结算记录的累计命中率目标，不是单笔预测概率；实际订单以币安记录为准'])
+    result['diagnostics'].update(gate_sample_required=MIN_SAMPLES,gate_lower_required_pct=None,
+        gate_passed=target['passed'],validation='按冻结规则后全部已结算研究记录的获胜占比检查65%目标；不按方向分开拦截，不以统计下界判定')
     return result

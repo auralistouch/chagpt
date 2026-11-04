@@ -41,6 +41,12 @@ class LatestBrowserTests(unittest.TestCase):
                     for old in ('v2','v3','旧版','pullback_v3','trend_v2','严格统计过滤'):self.assertNotIn(old,body)
                     self.assertIn(VERSION,body)
                     monitor.check_once();sender.assert_not_called()
+                    header='order_id,direction,open_time_ms,expiry_time_ms,open_index,close_index,net_payout,stake\n'
+                    csv=header+'a,UP,1000,601000,100,101,.8,1\nb,UP,1000,601000,100,101,.8,1\nc,UP,1000,601000,100,99,.8,1\nd,UP,1000,601000,100,100,.8,1'
+                    page.set_input_files('#order-file',dict(name='test-orders.csv',mimeType='text/csv',buffer=csv.encode()))
+                    expect(page.locator('#order-stats')).to_contain_text('累计命中率（平价计入总数）')
+                    expect(page.locator('#order-stats')).to_contain_text('50%')
+                    self.assertNotIn('66.67%',page.locator('#order-stats').inner_text())
                     page.click('#phone-test')
                     expect(page.locator('#phone-status')).to_contain_text('已接受测试请求')
                     sender.assert_called_once();self.assertIn('测试',sender.call_args.args[1])
