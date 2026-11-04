@@ -4,8 +4,11 @@ import csv
 from datetime import datetime, timezone
 import hashlib
 import json
+import io
+import sys
 from pathlib import Path
-from market import fetch_index_candles
+from market import MarketError
+from history_download import download_index_history, atomic_text
 from strategy import Candle, MINUTE, validate
 from pullback_strategy import pullback_features, VERSION
 from trend_strategy import trend_features, WARMUP_MINUTES
@@ -47,23 +50,29 @@ def evaluate(candles, payout=.8, ticks=None):
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--days',type=int,default=30);p.add_argument('--input')
+    p.add_argument('--refresh',action='store_true',help='创建新的下载时间窗口，原断点缓存保留')
+    p.add_argument('--cache-dir',help='默认在报告同目录index-history-cache保存断点')
     p.add_argument('--ticks',help='可选精确指数端点CSV：time_ms,index_price；缺失不补价')
     p.add_argument('--payout',type=float,default=.8)
     p.add_argument('--output',default='work/pullback-evaluation.json')
     args=p.parse_args()
     if not 3<=args.days<=90 or not .01<=args.payout<=2:p.error('days须3–90，payout须.01–2')
     output=Path(args.output);output.parent.mkdir(parents=True,exist_ok=True)
+    download_metadata=None
+    print('评估下载工具 v3.1：每个请求最多尝试4次，完整页面自动缓存；不下单、不推送。',flush=True)
     if args.input:
         source=Path(args.input)
         with source.open(encoding='utf-8',newline='') as stream:
             candles=[Candle(int(r['time_ms']),*[float(r[k]) for k in ('open','high','low','close')],float(r.get('spot_volume',0))) for r in csv.DictReader(stream)]
     else:
         print('只读获取指数；不发通知、不下单。首次30天可能需要几分钟。',flush=True)
-        candles,_=fetch_index_candles(count=args.days*1440,include_spot_volume=False)
+        cache_dir=Path(args.cache_dir) if args.cache_dir else output.parent/'index-history-cache'
+        candles,download_metadata=download_index_history(args.days*1440,cache_dir,refresh=args.refresh,progress=lambda text:print(text,flush=True))
         source=output.with_suffix('.csv')
-        with source.open('w',encoding='utf-8',newline='') as stream:
-            writer=csv.writer(stream);writer.writerow(['time_ms','open','high','low','close','spot_volume'])
-            writer.writerows((c.time,c.open,c.high,c.low,c.close,c.volume) for c in candles)
+        stream=io.StringIO(newline='')
+        writer=csv.writer(stream);writer.writerow(['time_ms','open','high','low','close','spot_volume'])
+        writer.writerows((c.time,c.open,c.high,c.low,c.close,c.volume) for c in candles)
+        atomic_text(source,stream.getvalue())
     ticks=None
     if args.ticks:
         ticks={};previous=-1
@@ -73,13 +82,20 @@ def main():
                 if stamp<=previous:raise ValueError('指数时间必须严格递增')
                 ticks[stamp]=row['index_price'];previous=stamp
     result=evaluate(candles,args.payout,ticks)
+    result['generated_at_utc']=datetime.now(timezone.utc).isoformat()
+    result['download_window']=download_metadata
     result['inputs_sha256']={'candles':hashlib.sha256(source.read_bytes()).hexdigest()}
     if args.ticks:result['inputs_sha256']['ticks']=hashlib.sha256(Path(args.ticks).read_bytes()).hexdigest()
-    output.write_text(json.dumps(result,ensure_ascii=False,indent=2,allow_nan=False)+'\n',encoding='utf-8')
+    atomic_text(output,json.dumps(result,ensure_ascii=False,indent=2,allow_nan=False)+'\n')
     for version,variant in result['variants'].items():
         s=variant['holdout']['reference']
         print(version,'后段研究样本',s['total'],'研究胜/亏/平',s['wins'],s['losses'],s['ties'],'未验证',s['unverified'],'研究命中率',s['win_rate_pct'])
     print('不是实际订单胜率。报告：',output.resolve())
 
 
-if __name__=='__main__':main()
+if __name__=='__main__':
+    try:main()
+    except (MarketError,ValueError,OSError) as error:
+        print('\n本次评估未完成：'+str(error),file=sys.stderr,flush=True)
+        print('本次未生成新报告。完整下载页已保留；网络恢复后双击evaluate.command会接着下载。若原报告存在，它不是本次结果。',file=sys.stderr,flush=True)
+        sys.exit(1)

@@ -80,9 +80,9 @@ def fetch_index_quote():
     return dict(price=price, time=stamp)
 
 
-def request(path, base=BASE, name='币安'):
+def request(path, base=BASE, name='币安', timeout=15):
     try:
-        with urlopen(Request(base+path, headers={'User-Agent': 'TenMinuteSignals/1.1'}), timeout=15) as response:
+        with urlopen(Request(base+path, headers={'User-Agent': 'TenMinuteSignals/1.1'}), timeout=timeout) as response:
             return json.load(response)
     except HTTPError as e:
         if e.code in (418, 429):
