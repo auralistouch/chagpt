@@ -59,7 +59,7 @@ class PhoneMonitor:
         self.stop_event = threading.Event()
         self.thread = None
         self.revision = 0
-        self.state = dict(key='', enabled=False, mode='live', payout=.8, policy='trend_v2', last_signal_time=0)
+        self.state = dict(key='', enabled=False, mode='live', payout=.8, policy='pullback_v3', last_signal_time=0)
         self.message = '手机提醒尚未配置'
         self.last_check = None
         self.last_push = None
@@ -76,7 +76,7 @@ class PhoneMonitor:
                     raise ValueError()
                 if not math.isfinite(saved['payout']) or not .01 <= saved['payout'] <= 2:
                     raise ValueError()
-                if saved.get('policy', 'strict') not in ('strict', 'candidate', 'trend_v2'): raise ValueError()
+                if saved.get('policy', 'strict') not in ('strict', 'candidate', 'trend_v2', 'pullback_v3'): raise ValueError()
                 last = saved.get('last_signal_time', 0)
                 if not isinstance(last, (int, float)) or not math.isfinite(last) or last < 0:
                     raise ValueError()
@@ -122,7 +122,7 @@ class PhoneMonitor:
         if not isinstance(raw, str): raise ValueError('设备密钥格式不正确')
         with self.lock:
             policy = values.get('policy', self.state['policy'])
-            if policy not in ('strict', 'candidate', 'trend_v2'): raise ValueError('提醒模式无效')
+            if policy not in ('strict', 'candidate', 'trend_v2', 'pullback_v3'): raise ValueError('提醒模式无效')
             candidate = {**self.state, 'enabled': enabled, 'mode': mode, 'payout': payout, 'policy': policy}
             if raw.strip(): candidate['key'] = device_key(raw)
             if enabled and not candidate['key']: raise ValueError('请先在本机网页填写 Bark 推送地址')
@@ -228,7 +228,7 @@ class PhoneMonitor:
                 direction = '看涨' if data['action'] == 'UP' else '看跌'
                 baseline = datetime.fromtimestamp(stamp/1000).astimezone().isoformat(timespec='seconds')
                 risk_note = '候选提醒：未通过历史统计门槛，尚未验证优势。' if settings['policy'] == 'candidate' else '严格统计过滤提醒，仍不保证结果。'
-                if settings['policy'] == 'trend_v2': risk_note = '新策略信号：5分钟趋势＋1分钟触发；未证明盈利优势。'
+                if settings['policy'] in ('trend_v2', 'pullback_v3'): risk_note = f"{data.get('strategy_name', '趋势确认')}信号；未证明盈利优势。"
                 trigger_note = f"触发：{data.get('setup', '指标共振')}；参考有效至 {datetime.fromtimestamp(data['valid_until']/1000).astimezone().isoformat(timespec='seconds')}\n" if data.get('valid_until') else ''
                 if data.get('signal_close') is not None: trigger_note += f"信号收盘指数 {data['signal_close']}\n"
                 why = '原因：'+'；'.join(data.get('signal_reasons', [])[-3:])+'\n' if data.get('signal_reasons') else ''
@@ -242,7 +242,7 @@ class PhoneMonitor:
                     return
             phase = 'push'
             self._record('push_attempt', kind='signal', signal_time=stamp)
-            self.sender(settings['key'], f"BTC {'新策略信号' if settings['policy'] == 'trend_v2' else '候选方向' if settings['policy'] == 'candidate' else '严格方向'} · {direction}", body)
+            self.sender(settings['key'], f"BTC {'新策略信号' if settings['policy'] in ('trend_v2', 'pullback_v3') else '候选方向' if settings['policy'] == 'candidate' else '严格方向'} · {direction}", body)
             self._push_result('accepted', 'signal', stamp)
             with self.lock:
                 if revision != self.revision: return

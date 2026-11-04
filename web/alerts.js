@@ -144,7 +144,7 @@
     const direction = data.action === 'UP' ? '看涨' : '看跌';
     const stamp = new Date(data.signal_time).toLocaleString('zh-CN', {hour12: false});
     const sound = tone();
-    const notified = desktop(`BTC ${data.policy === 'trend_v2' ? '新策略' : data.policy === 'candidate' ? '候选' : '严格'}方向 · ${direction}`, `${data.source} · ${data.pair}\n指数快照 ${data.reference_price} · 指标时间 ${stamp}\n${data.policy === 'trend_v2' ? `${data.setup}；有效至 ${new Date(data.valid_until).toLocaleTimeString()}。未证明盈利优势。` : data.policy === 'candidate' ? '未通过历史统计门槛，尚未验证优势。' : ''}仅供观察，不是下单指令。`, 'btc-observer-signal', Math.max(0, Math.min((data.freshness_limit_seconds || 75)*1000-age*1000, 15000-quoteAge*1000)));
+    const notified = desktop(`BTC ${['trend_v2', 'pullback_v3'].includes(data.policy) ? '新策略' : data.policy === 'candidate' ? '候选' : '严格'}方向 · ${direction}`, `${data.source} · ${data.pair}\n指数快照 ${data.reference_price} · 指标时间 ${stamp}\n${['trend_v2', 'pullback_v3'].includes(data.policy) ? `${data.setup}；有效至 ${new Date(data.valid_until).toLocaleTimeString()}。未证明盈利优势。` : data.policy === 'candidate' ? '未通过历史统计门槛，尚未验证优势。' : ''}仅供观察，不是下单指令。`, 'btc-observer-signal', Math.max(0, Math.min((data.freshness_limit_seconds || 75)*1000-age*1000, 15000-quoteAge*1000)));
     if (sound || notified) {
       lastAlert = {time:data.signal_time};
       try { localStorage.setItem(storageKey, JSON.stringify(lastAlert)); } catch { /* Use in-memory cooldown. */ }

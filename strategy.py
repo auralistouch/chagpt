@@ -144,7 +144,7 @@ def backtest(candles, features, start, stop, payout):
                 trades=trades[-30:])
 
 
-def analyze(candles, now_ms, payout=0.8, demo=False, price_kind='spot', quote=None, policy='strict', feature_builder=None):
+def analyze(candles, now_ms, payout=0.8, demo=False, price_kind='spot', quote=None, policy='strict', feature_builder=None, history_builder=None):
     if policy not in ('strict', 'candidate'): raise ValueError('提醒模式无效')
     validate(candles)
     if not math.isfinite(payout) or not 0.01 <= payout <= 2:
@@ -154,8 +154,9 @@ def analyze(candles, now_ms, payout=0.8, demo=False, price_kind='spot', quote=No
     features = (feature_builder or indicators)(candles)
     split = max(WARMUP+HORIZON+1, int(len(candles)*2/3))
     split = min(split, len(candles)-1)
-    early = backtest(candles, features, WARMUP, split, payout)
-    holdout = backtest(candles, features, split, len(candles), payout)
+    history = history_builder or backtest
+    early = history(candles, features, WARMUP, split, payout)
+    holdout = history(candles, features, split, len(candles), payout)
     current = features[-1]
     breakeven = 1/(1+payout)
     age = now_ms-(candles[-1].time+MINUTE)

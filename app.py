@@ -13,7 +13,11 @@ from urllib.parse import parse_qs, urlsplit
 from market import fetch_candles, fetch_coinbase, demo_candles, fetch_index_candles, fetch_index_quote
 from strategy import analyze
 from trend_strategy import analyze_trend
+from pullback_strategy import analyze_pullback, pullback_features
+from point_research import point_backtest
+from trend_strategy import trend_features
 from phone import PhoneMonitor
+from order_review import review_csv
 
 ROOT = Path(__file__).resolve().parent/'web'
 CACHE = {}
@@ -23,7 +27,7 @@ LOCK = threading.Lock()
 def report(mode, payout, policy='strict'):
     with LOCK:
         now = time.monotonic()
-        cache_key = (mode, 'index_only') if policy == 'trend_v2' else mode
+        cache_key = (mode, 'index_only') if policy in ('trend_v2', 'pullback_v3') else mode
         saved = CACHE.get(cache_key)
         if not saved or now-saved['fetched'] >= 30:
             try:
@@ -33,7 +37,7 @@ def report(mode, payout, policy='strict'):
                 elif mode == 'live':
                     previous = saved.get('candles') if saved else None
                     candles, exchange_now = (fetch_index_candles(previous, include_spot_volume=False)
-                                             if policy == 'trend_v2' else fetch_index_candles(previous))
+                                             if policy in ('trend_v2', 'pullback_v3') else fetch_index_candles(previous))
                 else:
                     candles, exchange_now = demo_candles()
                 finished = time.monotonic()
@@ -52,13 +56,20 @@ def report(mode, payout, policy='strict'):
         # the much larger closed-candle history is still cached.
         quote = fetch_index_quote() if mode == 'live' else None
         clock = saved['clock']+int((time.monotonic()-saved['fetched'])*1000)
-        analyzer = analyze_trend if policy == 'trend_v2' else analyze
-        options = {} if policy == 'trend_v2' else dict(policy=policy)
+        analyzer = {'trend_v2': analyze_trend, 'pullback_v3': analyze_pullback}.get(policy, analyze)
+        options = {} if policy in ('trend_v2', 'pullback_v3') else dict(policy=policy)
         result = analyzer(saved['candles'], clock, payout, mode == 'demo',
                           price_kind='index' if mode == 'live' else 'spot', quote=quote, **options)
+        if policy == 'trend_v2':
+            feature_builder = pullback_features if policy == 'pullback_v3' else trend_features
+            features = feature_builder(saved['candles'])
+            split = min(len(features)-1, max(121, len(features)*2//3))
+            result['reference_study'] = dict(
+                early=point_backtest(saved['candles'], features, 120, split, payout),
+                holdout=point_backtest(saved['candles'], features, split, len(features), payout)) if len(features)>122 else None
         result['source'] = {'coinbase': 'Coinbase 现货（研究）', 'live': '币安 BTCUSDT 指数', 'demo': '合成演示'}[mode]
         result['volume_source'] = '币安 BTCUSDT 现货成交量（仅量能指标）' if mode == 'live' else result['source']
-        if policy == 'trend_v2': result['volume_source'] = '新策略不使用成交量，仅请求指数行情'
+        if policy in ('trend_v2', 'pullback_v3'): result['volume_source'] = '新策略不使用成交量，仅请求指数行情'
         result['pair'] = 'BTC / USD' if mode == 'coinbase' else 'BTC / USDT'
         result['quote'] = 'USD' if mode == 'coinbase' else 'USDT'
         return result
@@ -93,7 +104,7 @@ class Handler(BaseHTTPRequestHandler):
                 if mode not in ('coinbase', 'live', 'demo') or not math.isfinite(payout) or not 0.01 <= payout <= 2:
                     raise ValueError('模式或净收益比例无效')
                 policy = query.get('policy', ['strict'])[0]
-                if policy not in ('strict', 'candidate', 'trend_v2'): raise ValueError('提醒模式无效')
+                if policy not in ('strict', 'candidate', 'trend_v2', 'pullback_v3'): raise ValueError('提醒模式无效')
                 result = report(mode, payout) if policy == 'strict' else report(mode, payout, policy)
                 return self.send(200, json.dumps(result, ensure_ascii=False, allow_nan=False).encode())
             except ValueError as e:
@@ -107,6 +118,7 @@ class Handler(BaseHTTPRequestHandler):
                  '/style.css': ('style.css', 'text/css; charset=utf-8'),
                  '/alerts.js': ('alerts.js', 'text/javascript; charset=utf-8'),
                  '/phone.js': ('phone.js', 'text/javascript; charset=utf-8'),
+                 '/orders.js': ('orders.js', 'text/javascript; charset=utf-8'),
                  '/app.js': ('app.js', 'text/javascript; charset=utf-8')}
         if url.path not in names:
             return self.send(404, b'{"error":"Not found"}')
@@ -114,7 +126,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send(200, (ROOT/name).read_bytes(), mime)
 
     def do_POST(self):
-        if self.path not in ('/api/phone', '/api/phone/test', '/api/phone/stop'):
+        if self.path not in ('/api/phone', '/api/phone/test', '/api/phone/stop', '/api/order-review'):
             return self.send(404, b'{"error":"Not found"}')
         try:
             origin = urlsplit(self.headers.get('Origin', ''))
@@ -126,8 +138,13 @@ class Handler(BaseHTTPRequestHandler):
                     or self.headers.get('Transfer-Encoding')):
                 return self.send(403, b'{"error":"Local same-origin JSON requests only"}')
             length = int(self.headers.get('Content-Length', '0'))
-            if not 0 < length <= 4096: raise ValueError('手机设置请求过大或为空')
+            limit = 1_100_000 if self.path == '/api/order-review' else 4096
+            if not 0 < length <= limit: raise ValueError('请求过大或为空')
             values = json.loads(self.rfile.read(length))
+            if self.path == '/api/order-review':
+                if not isinstance(values, dict): raise ValueError('请求须为JSON对象')
+                result = review_csv(values.get('csv'))
+                return self.send(200, json.dumps(result, ensure_ascii=False).encode())
             phone = getattr(self.server, 'phone_monitor', None)
             if not phone: raise RuntimeError('手机模块未启动，请重启新版程序')
             if self.path == '/api/phone/stop':

@@ -46,10 +46,10 @@ class TrendTests(unittest.TestCase):
         self.assertTrue(any(f['setup']=='区间突破' for f in rows))
         from evaluate import evaluate
         result=evaluate(series())
-        self.assertFalse(result['exact'])
+        self.assertFalse(result['exact_contract_replay'])
         self.assertFalse(result['production_push_backtest'])
         self.assertIn('daily_utc',result['holdout'])
-        self.assertIn('profit_upper_units',result['holdout']['bounds'])
+        self.assertEqual(result['holdout']['reference']['method'],'minute_open_reference')
 
     def test_prefix_invariance_and_only_completed_five_minute_candles(self):
         data=series(); full=trend_features(data)
@@ -95,7 +95,7 @@ class TrendTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             sender=Mock(); reporter=Mock(return_value=report)
             monitor=PhoneMonitor(Path(folder)/'phone.json',reporter,sender)
-            self.assertEqual(monitor.status()['policy'],'trend_v2')
+            self.assertEqual(monitor.status()['policy'],'pullback_v3')
             monitor.configure(dict(key='test-v2-only-fake-key',enabled=True,mode='live',policy='trend_v2'))
             monitor.check_once();monitor.check_once()
             sender.assert_called_once()
